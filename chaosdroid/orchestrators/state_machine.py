@@ -91,7 +91,7 @@ class PreparingHandler(BaseStateHandler):
 
     @property
     def status(self) -> RunStatus:
-        return RunStatus.preparing
+        return RunStatus.PREPARING
 
     async def handle(self, scenario_run: ScenarioRun, context: Dict[str, Any]) -> RunStatus:
         """
@@ -125,7 +125,7 @@ class PreparingHandler(BaseStateHandler):
                     started_at, datetime.utcnow(),
                     {"error": "no_executor", "message": "无法获取执行器"}
                 )
-                return RunStatus.failed
+                return RunStatus.FAILED
 
             # 检查设备在线
             if not await executor.is_online():
@@ -134,7 +134,7 @@ class PreparingHandler(BaseStateHandler):
                     started_at, datetime.utcnow(),
                     {"error": "device_offline", "message": "设备不在线"}
                 )
-                return RunStatus.failed
+                return RunStatus.FAILED
 
             # 采集设备属性
             properties = await executor.get_properties()
@@ -193,7 +193,7 @@ class PreparingHandler(BaseStateHandler):
                         "message": f"前置检查失败: {len(issues)}个问题",
                     }
                 )
-                return RunStatus.failed
+                return RunStatus.FAILED
 
             from dataclasses import asdict
 
@@ -220,9 +220,9 @@ class PreparingHandler(BaseStateHandler):
             # 获取注入阶段，决定下一步
             inject_stage = scenario_run.inject_stage
             if inject_stage == "precheck":
-                return RunStatus.injecting
+                return RunStatus.INJECTING
             else:
-                return RunStatus.injecting
+                return RunStatus.INJECTING
 
         except Exception as e:
             logger.exception("准备阶段异常")
@@ -231,7 +231,7 @@ class PreparingHandler(BaseStateHandler):
                 started_at, datetime.utcnow(),
                 {"error": str(e), "message": f"准备阶段异常: {str(e)}"}
             )
-            return RunStatus.failed
+            return RunStatus.FAILED
 
 
 class InjectingHandler(BaseStateHandler):
@@ -239,7 +239,7 @@ class InjectingHandler(BaseStateHandler):
 
     @property
     def status(self) -> RunStatus:
-        return RunStatus.injecting
+        return RunStatus.INJECTING
 
     async def handle(self, scenario_run: ScenarioRun, context: Dict[str, Any]) -> RunStatus:
         """
@@ -262,7 +262,7 @@ class InjectingHandler(BaseStateHandler):
                     started_at, datetime.utcnow(),
                     {"error": "no_executor", "message": "无法获取执行器"}
                 )
-                return RunStatus.failed
+                return RunStatus.FAILED
 
             # 如果没有注入器，跳过注入阶段
             if not injector:
@@ -272,7 +272,7 @@ class InjectingHandler(BaseStateHandler):
                     started_at, datetime.utcnow(),
                     {"skipped": True, "message": "没有配置注入器，跳过注入"}
                 )
-                return RunStatus.validating
+                return RunStatus.VALIDATING
 
             # 构建注入上下文
             from chaosdroid.injectors.base import InjectContext
@@ -300,7 +300,7 @@ class InjectingHandler(BaseStateHandler):
                     {"error": "prepare_failed", "message": "注入准备失败"}
                 )
                 context["inject_failed"] = True
-                return RunStatus.recovering
+                return RunStatus.RECOVERING
 
             # 执行注入
             inject_result = await injector.inject(inject_context)
@@ -332,12 +332,12 @@ class InjectingHandler(BaseStateHandler):
 
             if inject_result.success:
                 logger.info(f"注入成功: {inject_result.message}")
-                return RunStatus.validating
+                return RunStatus.VALIDATING
             else:
                 # 注入失败，进入恢复阶段尝试清理
                 logger.warning(f"注入失败: {inject_result.message}")
                 context["inject_failed"] = True
-                return RunStatus.recovering
+                return RunStatus.RECOVERING
 
         except Exception as e:
             logger.exception("注入阶段异常")
@@ -347,7 +347,7 @@ class InjectingHandler(BaseStateHandler):
                 {"error": str(e), "message": f"注入阶段异常: {str(e)}"}
             )
             context["inject_failed"] = True
-            return RunStatus.recovering
+            return RunStatus.RECOVERING
 
 
 class ValidatingHandler(BaseStateHandler):
@@ -355,7 +355,7 @@ class ValidatingHandler(BaseStateHandler):
 
     @property
     def status(self) -> RunStatus:
-        return RunStatus.validating
+        return RunStatus.VALIDATING
 
     async def handle(self, scenario_run: ScenarioRun, context: Dict[str, Any]) -> RunStatus:
         """
@@ -378,7 +378,7 @@ class ValidatingHandler(BaseStateHandler):
                     started_at, datetime.utcnow(),
                     {"error": "no_executor", "message": "无法获取执行器"}
                 )
-                return RunStatus.recovering
+                return RunStatus.RECOVERING
 
             # 如果没有验证器，使用默认验证器
             if not validator:
@@ -438,7 +438,7 @@ class ValidatingHandler(BaseStateHandler):
             )
 
             logger.info(f"验证完成: {validation_result.message}")
-            return RunStatus.recovering
+            return RunStatus.RECOVERING
 
         except Exception as e:
             logger.exception("验证阶段异常")
@@ -447,7 +447,7 @@ class ValidatingHandler(BaseStateHandler):
                 started_at, datetime.utcnow(),
                 {"error": str(e), "message": f"验证阶段异常: {str(e)}"}
             )
-            return RunStatus.recovering
+            return RunStatus.RECOVERING
 
 
 class RecoveringHandler(BaseStateHandler):
@@ -455,7 +455,7 @@ class RecoveringHandler(BaseStateHandler):
 
     @property
     def status(self) -> RunStatus:
-        return RunStatus.recovering
+        return RunStatus.RECOVERING
 
     async def handle(self, scenario_run: ScenarioRun, context: Dict[str, Any]) -> RunStatus:
         """
@@ -547,7 +547,7 @@ class RecoveringHandler(BaseStateHandler):
         inject_failed = context.get("inject_failed", False)
 
         if inject_failed:
-            return RunStatus.failed
+            return RunStatus.FAILED
 
         inject_result = context.get("inject_result", {})
         validation_result = context.get("validation_result", {})
@@ -559,25 +559,25 @@ class RecoveringHandler(BaseStateHandler):
 
         # 根据规范判定最终状态
         if not fault_injected:
-            return RunStatus.failed
+            return RunStatus.FAILED
 
         if fault_injected and validation_passed and recovery_passed:
-            return RunStatus.passed
+            return RunStatus.PASSED
 
         if fault_injected and not validation_passed and recovery_passed:
-            return RunStatus.failed
+            return RunStatus.FAILED
 
         if fault_injected and validation_passed and not recovery_passed:
-            return RunStatus.partial
+            return RunStatus.PARTIAL
 
-        return RunStatus.failed
+        return RunStatus.FAILED
 
 
 # 注册状态处理器
-STATE_HANDLERS[RunStatus.preparing] = PreparingHandler()
-STATE_HANDLERS[RunStatus.injecting] = InjectingHandler()
-STATE_HANDLERS[RunStatus.validating] = ValidatingHandler()
-STATE_HANDLERS[RunStatus.recovering] = RecoveringHandler()
+STATE_HANDLERS[RunStatus.PREPARING] = PreparingHandler()
+STATE_HANDLERS[RunStatus.INJECTING] = InjectingHandler()
+STATE_HANDLERS[RunStatus.VALIDATING] = ValidatingHandler()
+STATE_HANDLERS[RunStatus.RECOVERING] = RecoveringHandler()
 
 
 class ScenarioOrchestrator:
@@ -597,10 +597,10 @@ class ScenarioOrchestrator:
             # 获取执行记录
             scenario_run = await session.get(ScenarioRun, self.scenario_run_id)
             if not scenario_run:
-                return RunStatus.failed
+                return RunStatus.FAILED
 
             # 初始化状态为 preparing
-            scenario_run.status = RunStatus.preparing
+            scenario_run.status = RunStatus.PREPARING
             scenario_run.started_at = datetime.utcnow()
             await session.commit()
 

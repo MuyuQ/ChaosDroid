@@ -640,3 +640,591 @@ class TestMockDeviceStateInteraction:
         assert state.storage_available == 10 * 1024 * 1024 * 1024  # 10GB
         assert state.battery_level == 100
         assert state.network_connected is True
+
+
+# ==================== LowBatteryInjector 测试 ====================
+
+class TestLowBatteryInjector:
+    """测试低电量注入器。"""
+
+    @pytest.fixture
+    def low_battery_injector(self):
+        """创建低电量注入器实例。"""
+        from chaosdroid.injectors.low_battery import LowBatteryInjector
+        return LowBatteryInjector()
+
+    @pytest.fixture
+    def inject_context_low_battery(self, mock_executor):
+        """创建低电量注入上下文。"""
+        return InjectContext(
+            scenario_run_id=1,
+            device_serial="test_device",
+            executor=mock_executor,
+            fault_profile={"parameters": {"target_level": 10}},
+            artifacts_dir="/tmp",
+        )
+
+    async def test_prepare_success(self, low_battery_injector, inject_context_low_battery):
+        """测试低电量注入器准备成功。"""
+        result = await low_battery_injector.prepare(inject_context_low_battery)
+        assert result is True
+        assert low_battery_injector.target_level == 10
+
+    async def test_prepare_offline_fails(self, low_battery_injector, mock_executor_offline):
+        """测试离线设备准备失败。"""
+        context = InjectContext(
+            scenario_run_id=1,
+            device_serial="offline",
+            executor=mock_executor_offline,
+            fault_profile={"parameters": {"target_level": 10}},
+            artifacts_dir="/tmp",
+        )
+        result = await low_battery_injector.prepare(context)
+        assert result is False
+
+    async def test_inject_mock_mode(self, low_battery_injector, inject_context_low_battery, mock_executor):
+        """测试Mock模式下低电量注入。"""
+        await low_battery_injector.prepare(inject_context_low_battery)
+        result = await low_battery_injector.inject(inject_context_low_battery)
+
+        assert result.success is True
+        assert result.fault_injected is True
+        assert "Mock注入" in result.message
+
+    async def test_inject_changes_state(self, low_battery_injector, inject_context_low_battery, mock_executor):
+        """测试注入改变设备状态。"""
+        state = mock_executor.get_state()
+        await low_battery_injector.prepare(inject_context_low_battery)
+        await low_battery_injector.inject(inject_context_low_battery)
+
+        assert state.battery_level == 10
+
+    async def test_cleanup_mock_mode(self, low_battery_injector, inject_context_low_battery, mock_executor):
+        """测试Mock模式下清理。"""
+        state = mock_executor.get_state()
+        await low_battery_injector.prepare(inject_context_low_battery)
+        await low_battery_injector.inject(inject_context_low_battery)
+
+        result = await low_battery_injector.cleanup(inject_context_low_battery)
+
+        assert result is True
+        assert state.battery_level == 100
+
+    def test_fault_type(self, low_battery_injector):
+        """测试故障类型属性。"""
+        from chaosdroid.injectors.base import FaultType
+        assert low_battery_injector.fault_type == FaultType.low_battery
+
+    def test_risk_level(self, low_battery_injector):
+        """测试风险等级属性。"""
+        from chaosdroid.injectors.base import RiskLevel
+        assert low_battery_injector.risk_level == RiskLevel.low
+
+
+# ==================== NetworkJitterInjector 测试 ====================
+
+class TestNetworkJitterInjector:
+    """测试网络波动注入器。"""
+
+    @pytest.fixture
+    def network_injector(self):
+        """创建网络波动注入器实例。"""
+        from chaosdroid.injectors.network_jitter import NetworkJitterInjector
+        return NetworkJitterInjector()
+
+    @pytest.fixture
+    def inject_context_network(self, mock_executor):
+        """创建网络波动注入上下文。"""
+        return InjectContext(
+            scenario_run_id=1,
+            device_serial="test_device",
+            executor=mock_executor,
+            fault_profile={"parameters": {
+                "jitter_type": "disconnect",
+                "latency_ms": 500,
+                "disconnect_duration_sec": 5
+            }},
+            artifacts_dir="/tmp",
+        )
+
+    async def test_prepare_success(self, network_injector, inject_context_network):
+        """测试网络波动注入器准备成功。"""
+        result = await network_injector.prepare(inject_context_network)
+        assert result is True
+        assert network_injector.jitter_type == "disconnect"
+
+    async def test_prepare_offline_fails(self, network_injector, mock_executor_offline):
+        """测试离线设备准备失败。"""
+        context = InjectContext(
+            scenario_run_id=1,
+            device_serial="offline",
+            executor=mock_executor_offline,
+            fault_profile={"parameters": {"jitter_type": "latency"}},
+            artifacts_dir="/tmp",
+        )
+        result = await network_injector.prepare(context)
+        assert result is False
+
+    async def test_inject_mock_mode_disconnect(self, network_injector, inject_context_network, mock_executor):
+        """测试Mock模式下断网注入。"""
+        state = mock_executor.get_state()
+        await network_injector.prepare(inject_context_network)
+        result = await network_injector.inject(inject_context_network)
+
+        assert result.success is True
+        assert result.fault_injected is True
+        assert state.network_connected is False
+
+    async def test_inject_mock_mode_timeout(self, network_injector, mock_executor):
+        """测试Mock模式下超时注入。"""
+        context = InjectContext(
+            scenario_run_id=1,
+            device_serial="test",
+            executor=mock_executor,
+            fault_profile={"parameters": {"jitter_type": "timeout"}},
+            artifacts_dir="/tmp",
+        )
+        state = mock_executor.get_state()
+        await network_injector.prepare(context)
+        result = await network_injector.inject(context)
+
+        assert result.success is True
+
+    async def test_cleanup_mock_mode(self, network_injector, inject_context_network, mock_executor):
+        """测试Mock模式下清理。"""
+        state = mock_executor.get_state()
+        await network_injector.prepare(inject_context_network)
+        await network_injector.inject(inject_context_network)
+
+        result = await network_injector.cleanup(inject_context_network)
+
+        assert result is True
+        assert state.network_connected is True
+
+    def test_fault_type(self, network_injector):
+        """测试故障类型属性。"""
+        from chaosdroid.injectors.base import FaultType
+        assert network_injector.fault_type == FaultType.network_jitter
+
+    def test_risk_level(self, network_injector):
+        """测试风险等级属性。"""
+        from chaosdroid.injectors.base import RiskLevel
+        assert network_injector.risk_level == RiskLevel.medium
+
+
+# ==================== RebootTimeoutInjector 测试 ====================
+
+class TestRebootTimeoutInjector:
+    """测试重启超时注入器。"""
+
+    @pytest.fixture
+    def reboot_injector(self):
+        """创建重启超时注入器实例。"""
+        from chaosdroid.injectors.reboot_timeout import RebootTimeoutInjector
+        return RebootTimeoutInjector()
+
+    @pytest.fixture
+    def inject_context_reboot(self, mock_executor):
+        """创建重启超时注入上下文。"""
+        return InjectContext(
+            scenario_run_id=1,
+            device_serial="test_device",
+            executor=mock_executor,
+            fault_profile={"parameters": {
+                "timeout_duration_sec": 60,
+                "boot_delay_sec": 30
+            }},
+            artifacts_dir="/tmp",
+        )
+
+    async def test_prepare_success(self, reboot_injector, inject_context_reboot):
+        """测试重启超时注入器准备成功。"""
+        result = await reboot_injector.prepare(inject_context_reboot)
+        assert result is True
+        assert reboot_injector.timeout_duration_sec == 60
+
+    async def test_prepare_offline_fails(self, reboot_injector, mock_executor_offline):
+        """测试离线设备准备失败。"""
+        context = InjectContext(
+            scenario_run_id=1,
+            device_serial="offline",
+            executor=mock_executor_offline,
+            fault_profile={"parameters": {"timeout_duration_sec": 60}},
+            artifacts_dir="/tmp",
+        )
+        result = await reboot_injector.prepare(context)
+        assert result is False
+
+    async def test_inject_mock_mode(self, reboot_injector, inject_context_reboot, mock_executor):
+        """测试Mock模式下重启超时注入。"""
+        state = mock_executor.get_state()
+        await reboot_injector.prepare(inject_context_reboot)
+        result = await reboot_injector.inject(inject_context_reboot)
+
+        assert result.success is True
+        assert result.fault_injected is True
+        assert state.boot_completed is False
+
+    async def test_inject_sets_boot_not_completed(self, reboot_injector, inject_context_reboot, mock_executor):
+        """测试注入设置boot未完成状态。"""
+        state = mock_executor.get_state()
+        state.boot_completed = True  # 初始为True
+
+        await reboot_injector.prepare(inject_context_reboot)
+        await reboot_injector.inject(inject_context_reboot)
+
+        assert state.boot_completed is False
+
+    async def test_cleanup_mock_mode(self, reboot_injector, inject_context_reboot, mock_executor):
+        """测试Mock模式下清理。"""
+        state = mock_executor.get_state()
+        await reboot_injector.prepare(inject_context_reboot)
+        await reboot_injector.inject(inject_context_reboot)
+
+        result = await reboot_injector.cleanup(inject_context_reboot)
+
+        assert result is True
+        assert state.boot_completed is True
+
+    def test_fault_type(self, reboot_injector):
+        """测试故障类型属性。"""
+        from chaosdroid.injectors.base import FaultType
+        assert reboot_injector.fault_type == FaultType.reboot_timeout
+
+    def test_risk_level(self, reboot_injector):
+        """测试风险等级属性。"""
+        from chaosdroid.injectors.base import RiskLevel
+        assert reboot_injector.risk_level == RiskLevel.high
+
+
+# ==================== CpuIoStressInjector 测试 ====================
+
+class TestCpuIoStressInjector:
+    """测试CPU/I/O压力注入器。"""
+
+    @pytest.fixture
+    def cpu_io_injector(self):
+        """创建CPU/I/O压力注入器实例。"""
+        from chaosdroid.injectors.cpu_io_stress import CpuIoStressInjector
+        return CpuIoStressInjector()
+
+    @pytest.fixture
+    def inject_context_cpu_io(self, mock_executor):
+        """创建CPU/I/O压力注入上下文。"""
+        return InjectContext(
+            scenario_run_id=1,
+            device_serial="test_device",
+            executor=mock_executor,
+            fault_profile={"parameters": {
+                "cpu_load_percent": 50,
+                "io_enabled": True,
+                "duration_sec": 60
+            }},
+            artifacts_dir="/tmp",
+        )
+
+    async def test_prepare_success(self, cpu_io_injector, inject_context_cpu_io):
+        """测试CPU/I/O压力注入器准备成功。"""
+        result = await cpu_io_injector.prepare(inject_context_cpu_io)
+        assert result is True
+        assert cpu_io_injector.cpu_load_percent == 50
+
+    async def test_prepare_offline_fails(self, cpu_io_injector, mock_executor_offline):
+        """测试离线设备准备失败。"""
+        context = InjectContext(
+            scenario_run_id=1,
+            device_serial="offline",
+            executor=mock_executor_offline,
+            fault_profile={"parameters": {"cpu_load_percent": 50}},
+            artifacts_dir="/tmp",
+        )
+        result = await cpu_io_injector.prepare(context)
+        assert result is False
+
+    async def test_inject_mock_mode(self, cpu_io_injector, inject_context_cpu_io, mock_executor):
+        """测试Mock模式下CPU/I/O压力注入。"""
+        state = mock_executor.get_state()
+        await cpu_io_injector.prepare(inject_context_cpu_io)
+        result = await cpu_io_injector.inject(inject_context_cpu_io)
+
+        assert result.success is True
+        assert result.fault_injected is True
+        assert len(state.stress_processes) > 0
+
+    async def test_inject_adds_stress_process(self, cpu_io_injector, inject_context_cpu_io, mock_executor):
+        """测试注入添加压力进程。"""
+        state = mock_executor.get_state()
+        initial_count = len(state.stress_processes)
+
+        await cpu_io_injector.prepare(inject_context_cpu_io)
+        await cpu_io_injector.inject(inject_context_cpu_io)
+
+        assert len(state.stress_processes) > initial_count
+
+    async def test_cleanup_mock_mode(self, cpu_io_injector, inject_context_cpu_io, mock_executor):
+        """测试Mock模式下清理。"""
+        state = mock_executor.get_state()
+        await cpu_io_injector.prepare(inject_context_cpu_io)
+        await cpu_io_injector.inject(inject_context_cpu_io)
+
+        result = await cpu_io_injector.cleanup(inject_context_cpu_io)
+
+        assert result is True
+        assert len(state.stress_processes) == 0
+
+    def test_fault_type(self, cpu_io_injector):
+        """测试故障类型属性。"""
+        from chaosdroid.injectors.base import FaultType
+        assert cpu_io_injector.fault_type == FaultType.cpu_io_stress
+
+    def test_risk_level(self, cpu_io_injector):
+        """测试风险等级属性。"""
+        from chaosdroid.injectors.base import RiskLevel
+        assert cpu_io_injector.risk_level == RiskLevel.medium
+
+
+# ==================== MonkeyStabilityInjector 测试 ====================
+
+class TestMonkeyStabilityInjector:
+    """测试Monkey稳定性注入器。"""
+
+    @pytest.fixture
+    def monkey_injector(self):
+        """创建Monkey稳定性注入器实例。"""
+        from chaosdroid.injectors.monkey_stability import MonkeyStabilityInjector
+        return MonkeyStabilityInjector()
+
+    @pytest.fixture
+    def inject_context_monkey(self, mock_executor):
+        """创建Monkey稳定性注入上下文。"""
+        return InjectContext(
+            scenario_run_id=1,
+            device_serial="test_device",
+            executor=mock_executor,
+            fault_profile={"parameters": {
+                "package": "com.test.app",
+                "event_count": 1000,
+                "seed": 123,
+                "throttle_ms": 50,
+                "options": {
+                    "max_crashes_allowed": 0,
+                    "max_anrs_allowed": 0
+                }
+            }},
+            artifacts_dir="/tmp",
+        )
+
+    async def test_prepare_success(self, monkey_injector, inject_context_monkey):
+        """测试Monkey稳定性注入器准备成功。"""
+        result = await monkey_injector.prepare(inject_context_monkey)
+        assert result is True
+        assert monkey_injector.event_count == 1000
+        assert monkey_injector.seed == 123
+
+    async def test_prepare_offline_fails(self, monkey_injector, mock_executor_offline):
+        """测试离线设备准备失败。"""
+        context = InjectContext(
+            scenario_run_id=1,
+            device_serial="offline",
+            executor=mock_executor_offline,
+            fault_profile={"parameters": {"event_count": 1000}},
+            artifacts_dir="/tmp",
+        )
+        result = await monkey_injector.prepare(context)
+        assert result is False
+
+    async def test_inject_mock_mode(self, monkey_injector, inject_context_monkey):
+        """测试Mock模式下Monkey稳定性注入。"""
+        await monkey_injector.prepare(inject_context_monkey)
+        result = await monkey_injector.inject(inject_context_monkey)
+
+        assert result.success is True
+        assert result.fault_injected is True
+        assert "crash_count" in result.details
+        assert "anr_count" in result.details
+
+    async def test_inject_returns_monkey_stats(self, monkey_injector, inject_context_monkey):
+        """测试注入返回Monkey统计信息。"""
+        await monkey_injector.prepare(inject_context_monkey)
+        result = await monkey_injector.inject(inject_context_monkey)
+
+        assert "total_events" in result.details
+        assert result.details["total_events"] == 1000
+
+    async def test_cleanup_success(self, monkey_injector, inject_context_monkey):
+        """测试Monkey清理成功（Monkey测试不需要清理）。"""
+        await monkey_injector.prepare(inject_context_monkey)
+        result = await monkey_injector.cleanup(inject_context_monkey)
+
+        assert result is True
+
+    def test_fault_type(self, monkey_injector):
+        """测试故障类型属性。"""
+        from chaosdroid.injectors.base import FaultType
+        assert monkey_injector.fault_type == FaultType.monkey_stability
+
+    def test_risk_level(self, monkey_injector):
+        """测试风险等级属性。"""
+        from chaosdroid.injectors.base import RiskLevel
+        assert monkey_injector.risk_level == RiskLevel.medium
+
+    def test_parse_crashes(self, monkey_injector):
+        """测试解析crash输出。"""
+        output = """
+// CRASH: com.test.app (pid 1234)
+Events injected: 500
+// CRASH: com.test.app (pid 5678)
+"""
+        count = monkey_injector._parse_crashes(output)
+        assert count == 2
+
+    def test_parse_anrs(self, monkey_injector):
+        """测试解析ANR输出。"""
+        output = """
+// ANR: com.test.app
+Events injected: 500
+// ANR: com.test.app
+"""
+        count = monkey_injector._parse_anrs(output)
+        assert count == 2
+
+
+# ==================== 注入器注册测试 ====================
+
+class TestInjectorRegistration:
+    """测试所有注入器已正确注册。"""
+
+    def test_all_injectors_registered(self):
+        """测试所有6类注入器已注册。"""
+        expected_types = [
+            "storage_pressure",
+            "low_battery",
+            "network_jitter",
+            "reboot_timeout",
+            "cpu_io_stress",
+            "monkey_stability",
+        ]
+
+        for fault_type in expected_types:
+            injector = get_injector(fault_type)
+            assert injector is not None, f"{fault_type} injector not registered"
+
+    def test_get_injector_by_fault_type(self):
+        """测试按故障类型获取注入器。"""
+        from chaosdroid.injectors.storage_pressure import StoragePressureInjector
+        from chaosdroid.injectors.low_battery import LowBatteryInjector
+        from chaosdroid.injectors.network_jitter import NetworkJitterInjector
+        from chaosdroid.injectors.reboot_timeout import RebootTimeoutInjector
+        from chaosdroid.injectors.cpu_io_stress import CpuIoStressInjector
+        from chaosdroid.injectors.monkey_stability import MonkeyStabilityInjector
+
+        assert isinstance(get_injector("storage_pressure"), StoragePressureInjector)
+        assert isinstance(get_injector("low_battery"), LowBatteryInjector)
+        assert isinstance(get_injector("network_jitter"), NetworkJitterInjector)
+        assert isinstance(get_injector("reboot_timeout"), RebootTimeoutInjector)
+        assert isinstance(get_injector("cpu_io_stress"), CpuIoStressInjector)
+        assert isinstance(get_injector("monkey_stability"), MonkeyStabilityInjector)
+
+
+# ==================== Mock模式 vs Real模式测试 ====================
+
+class TestMockVsRealMode:
+    """测试Mock模式和Real模式的处理差异。"""
+
+    async def test_storage_pressure_mock_mode(self, mock_executor):
+        """测试存储压力注入在Mock模式下正确处理。"""
+        injector = StoragePressureInjector()
+        context = InjectContext(
+            scenario_run_id=1,
+            device_serial="test",
+            executor=mock_executor,
+            fault_profile={"parameters": {"pressure_mb": 100}},
+            artifacts_dir="/tmp",
+        )
+
+        await injector.prepare(context)
+        result = await injector.inject(context)
+
+        assert "Mock注入" in result.message
+
+    async def test_low_battery_mock_mode(self, mock_executor):
+        """测试低电量注入在Mock模式下正确处理。"""
+        from chaosdroid.injectors.low_battery import LowBatteryInjector
+        injector = LowBatteryInjector()
+        context = InjectContext(
+            scenario_run_id=1,
+            device_serial="test",
+            executor=mock_executor,
+            fault_profile={"parameters": {"target_level": 10}},
+            artifacts_dir="/tmp",
+        )
+
+        await injector.prepare(context)
+        result = await injector.inject(context)
+
+        # Mock模式应修改状态
+        state = mock_executor.get_state()
+        assert state.battery_level == 10
+
+    async def test_network_jitter_mock_mode(self, mock_executor):
+        """测试网络波动注入在Mock模式下正确处理。"""
+        from chaosdroid.injectors.network_jitter import NetworkJitterInjector
+        injector = NetworkJitterInjector()
+        context = InjectContext(
+            scenario_run_id=1,
+            device_serial="test",
+            executor=mock_executor,
+            fault_profile={"parameters": {"jitter_type": "disconnect"}},
+            artifacts_dir="/tmp",
+        )
+
+        await injector.prepare(context)
+        result = await injector.inject(context)
+
+        # Mock模式应修改网络状态
+        state = mock_executor.get_state()
+        assert state.network_connected is False
+
+    async def test_reboot_timeout_mock_mode(self, mock_executor):
+        """测试重启超时注入在Mock模式下正确处理。"""
+        from chaosdroid.injectors.reboot_timeout import RebootTimeoutInjector
+        injector = RebootTimeoutInjector()
+        context = InjectContext(
+            scenario_run_id=1,
+            device_serial="test",
+            executor=mock_executor,
+            fault_profile={"parameters": {}},
+            artifacts_dir="/tmp",
+        )
+
+        await injector.prepare(context)
+        result = await injector.inject(context)
+
+        # Mock模式应设置boot未完成
+        state = mock_executor.get_state()
+        assert state.boot_completed is False
+
+    async def test_cpu_io_stress_mock_mode(self, mock_executor):
+        """测试CPU/I/O压力注入在Mock模式下正确处理。"""
+        from chaosdroid.injectors.cpu_io_stress import CpuIoStressInjector
+        injector = CpuIoStressInjector()
+        context = InjectContext(
+            scenario_run_id=1,
+            device_serial="test",
+            executor=mock_executor,
+            fault_profile={"parameters": {}},
+            artifacts_dir="/tmp",
+        )
+
+        await injector.prepare(context)
+        result = await injector.inject(context)
+
+        # Mock模式应添加压力进程
+        state = mock_executor.get_state()
+        assert len(state.stress_processes) > 0
+
+    def test_executor_has_get_state_method(self, mock_executor):
+        """测试Mock执行器有get_state方法用于判断Mock模式。"""
+        # 注入器使用 hasattr(executor, 'get_state') 来判断是否是Mock模式
+        assert hasattr(mock_executor, 'get_state')
+        assert callable(getattr(mock_executor, 'get_state'))
