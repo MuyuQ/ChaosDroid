@@ -597,27 +597,181 @@ class ScenarioOrchestrator:
             # 获取执行记录
             scenario_run = await session.get(ScenarioRun, self.scenario_run_id)
             if not scenario_run:
+                logger.error(f"找不到执行记录 run_id={self.scenario_run_id}")
                 return RunStatus.FAILED
 
+            # 加载场景模板和相关配置
+            await self._load_scenario_config(session, scenario_run)
+
             # 初始化状态为 preparing
-            scenario_run.status = RunStatus.PREPARING
+            scenario_run.status = RunStatus.PREPARING.value
             scenario_run.started_at = datetime.utcnow()
             await session.commit()
 
             # 状态机循环
-            while scenario_run.status in STATE_HANDLERS:
-                handler = STATE_HANDLERS[scenario_run.status]
+            current_status = RunStatus.PREPARING
+            while current_status in STATE_HANDLERS:
+                handler = STATE_HANDLERS[current_status]
+                logger.info(f"执行状态处理器: {current_status.value}")
+
+                # 刷新scenario_run以获取最新数据
+                await session.refresh(scenario_run)
+                scenario_run.status = current_status.value
+                await session.commit()
+
+                # 执行状态处理
                 next_status = await handler.handle(scenario_run, self.context)
 
                 # 更新状态
-                scenario_run.status = next_status
+                current_status = next_status
+                scenario_run.status = next_status.value
                 scenario_run.finished_at = datetime.utcnow()
                 await session.commit()
 
-            return scenario_run.status
+                logger.info(f"状态转换: {scenario_run.status}")
+
+            # 生成报告
+            await self._generate_report(session, scenario_run)
+
+            return RunStatus(scenario_run.status)
+
+    async def _load_scenario_config(self, session, scenario_run: ScenarioRun) -> None:
+        """加载场景配置到context."""
+        from chaosdroid.models import ScenarioTemplate, FaultProfile, ValidationProfile, RecoveryProfile
+
+        # 获取场景模板
+        if scenario_run.scenario_template_id:
+            template = await session.get(ScenarioTemplate, scenario_run.scenario_template_id)
+            if template:
+                self.context["scenario_template"] = template
+                self.context["executor_mode"] = template.executor_mode
+
+                # 获取故障配置
+                if template.fault_profile_id:
+                    fault_profile = await session.get(FaultProfile, template.fault_profile_id)
+                    if fault_profile:
+                        self.context["fault_profile"] = {
+                            "id": fault_profile.id,
+                            "name": fault_profile.name,
+                            "fault_type": fault_profile.fault_type,
+                            "parameters": json.loads(fault_profile.parameters_json or "{}"),
+                            "safe_cleanup_required": fault_profile.safe_cleanup_required,
+                            "risk_level": fault_profile.risk_level,
+                        }
+
+                        # 设置注入器
+                        from chaosdroid.injectors.base import get_injector
+                        injector = get_injector(fault_profile.fault_type)
+                        self.context["injector"] = injector
+
+                # 获取验证配置
+                if template.validation_profile_id:
+                    validation_profile = await session.get(ValidationProfile, template.validation_profile_id)
+                    if validation_profile:
+                        self.context["validation_profile"] = {
+                            "id": validation_profile.id,
+                            "name": validation_profile.name,
+                            "checks": json.loads(validation_profile.checks_json or "{}"),
+                            "timeout_sec": validation_profile.timeout_sec,
+                            "pass_rules": json.loads(validation_profile.pass_rules_json or "{}"),
+                        }
+
+                # 获取恢复配置
+                if template.recovery_profile_id:
+                    recovery_profile = await session.get(RecoveryProfile, template.recovery_profile_id)
+                    if recovery_profile:
+                        self.context["recovery_profile"] = {
+                            "id": recovery_profile.id,
+                            "name": recovery_profile.name,
+                            "steps": json.loads(recovery_profile.steps_json or "{}"),
+                            "manual_intervention_allowed": recovery_profile.manual_intervention_allowed,
+                            "timeout_sec": recovery_profile.timeout_sec,
+                        }
+
+        # 设置基本context信息
+        self.context["scenario_run_id"] = scenario_run.id
+        self.context["device_serial"] = scenario_run.device_serial
+        self.context["inject_stage"] = scenario_run.inject_stage
+
+    async def _generate_report(self, session, scenario_run: ScenarioRun) -> None:
+        """生成执行报告."""
+        try:
+            from chaosdroid.services.report_generator import ReportGenerator, ReportData
+            from chaosdroid.validators.base import JudgmentResult
+
+            # 计算执行时长
+            started_at = scenario_run.started_at
+            finished_at = scenario_run.finished_at or datetime.utcnow()
+            duration_sec = 0.0
+            if started_at:
+                duration_sec = (finished_at - started_at).total_seconds()
+
+            # 获取场景名称
+            scenario_name = "Unknown"
+            if scenario_run.scenario_template_id:
+                template = await session.get(ScenarioTemplate, scenario_run.scenario_template_id)
+                if template:
+                    scenario_name = template.name
+
+            # 构建判定结果
+            inject_result = self.context.get("inject_result", {})
+            validation_result = self.context.get("validation_result", {})
+            recovery_result = self.context.get("recovery_result", {})
+            fault_profile = self.context.get("fault_profile", {})
+
+            judgment = JudgmentResult(
+                fault_injected=inject_result.get("fault_injected", False),
+                fault_observed=validation_result.get("fault_observed", False),
+                validation_passed=validation_result.get("passed", True),
+                recovery_passed=recovery_result.get("passed", True),
+                risk_level=fault_profile.get("risk_level", "medium"),
+                manual_action_required=recovery_result.get("manual_action_required", False),
+                final_status=scenario_run.status,
+                message=f"注入:{inject_result.get('message', 'N/A')}, 验证:{validation_result.get('message', 'N/A')}, 恢复:{recovery_result.get('message', 'N/A')}",
+            )
+
+            # 构建报告数据
+            report_data = ReportData(
+                scenario_name=scenario_name,
+                device_serial=scenario_run.device_serial,
+                inject_stage=scenario_run.inject_stage,
+                fault_type=fault_profile.get("fault_type", ""),
+                inject_summary=inject_result,
+                validation_summary=validation_result,
+                recovery_summary=recovery_result,
+                judgment=judgment,
+                evidence=self.context.get("observations", {}),
+                started_at=started_at,
+                finished_at=finished_at,
+                duration_sec=duration_sec,
+            )
+
+            # 生成报告
+            generator = ReportGenerator(self.scenario_run_id)
+            paths = generator.save_reports(report_data)
+            summary_json = generator.generate_summary_json(report_data)
+
+            # 保存报告记录
+            from chaosdroid.models import Report
+            report = Report(
+                scenario_run_id=self.scenario_run_id,
+                markdown_path=paths["markdown_path"],
+                html_path=paths["html_path"],
+                summary_json=summary_json,
+            )
+            session.add(report)
+
+            # 更新执行记录的结果摘要
+            scenario_run.result_summary_json = summary_json
+            await session.commit()
+
+            logger.info(f"报告已生成: {paths['markdown_path']}")
+
+        except Exception as e:
+            logger.exception(f"生成报告失败: {str(e)}")
 
     async def setup_context(self, executor, injector, validator, recovery):
-        """设置执行上下文"""
+        """设置执行上下文（手动调用）"""
         self.context["executor"] = executor
         self.context["injector"] = injector
         self.context["validator"] = validator

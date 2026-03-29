@@ -813,3 +813,445 @@ class TestBaseDeviceExecutorAbstract:
         # 不继承BaseDeviceExecutor则不会报错
         executor = IncompleteExecutor()
         assert executor.mode == ExecutorMode.mock
+
+
+# ==================== RealDeviceExecutor 测试 ====================
+
+class TestRealDeviceExecutorInit:
+    """测试RealDeviceExecutor初始化。"""
+
+    def test_init_with_serial(self):
+        """测试带序列号初始化。"""
+        from chaosdroid.executors.real_executor import RealDeviceExecutor
+        executor = RealDeviceExecutor("real_device_001")
+
+        assert executor.device_serial == "real_device_001"
+        assert executor.mode == ExecutorMode.real
+
+    def test_init_has_adb_path(self):
+        """测试初始化包含ADB路径。"""
+        from chaosdroid.executors.real_executor import RealDeviceExecutor
+        executor = RealDeviceExecutor("device_001")
+
+        assert hasattr(executor, "adb_path")
+        assert executor.adb_path is not None
+
+    def test_init_loads_settings(self):
+        """测试初始化加载设置。"""
+        from chaosdroid.executors.real_executor import RealDeviceExecutor
+        executor = RealDeviceExecutor("device_001")
+
+        assert hasattr(executor, "settings")
+
+
+class TestRealDeviceExecutorBuildCommand:
+    """测试RealDeviceExecutor构建ADB命令。"""
+
+    @pytest.fixture
+    def real_executor(self):
+        """创建RealDeviceExecutor实例。"""
+        from chaosdroid.executors.real_executor import RealDeviceExecutor
+        return RealDeviceExecutor("test_serial")
+
+    def test_build_adb_command_with_serial(self, real_executor):
+        """测试构建ADB命令包含序列号。"""
+        cmd = real_executor._build_adb_command("shell", "getprop")
+
+        assert "adb" in cmd
+        assert "-s" in cmd
+        assert "test_serial" in cmd
+        assert "shell" in cmd
+        assert "getprop" in cmd
+
+    def test_build_adb_command_simple(self, real_executor):
+        """测试构建简单ADB命令。"""
+        cmd = real_executor._build_adb_command("devices")
+
+        assert "adb" in cmd
+        assert "devices" in cmd
+
+    def test_build_adb_command_multiple_args(self, real_executor):
+        """测试构建多参数ADB命令。"""
+        cmd = real_executor._build_adb_command("shell", "ls", "-la", "/sdcard")
+
+        assert "shell" in cmd
+        assert "ls" in cmd
+        assert "-la" in cmd
+        assert "/sdcard" in cmd
+
+
+class TestRealDeviceExecutorMocked:
+    """测试RealDeviceExecutor方法（使用Mock模拟ADB）。"""
+
+    @pytest.fixture
+    def real_executor_mocked(self):
+        """创建RealDeviceExecutor并Mock设置。"""
+        from chaosdroid.executors.real_executor import RealDeviceExecutor
+        executor = RealDeviceExecutor("test_serial")
+        return executor
+
+    async def test_is_online_device_connected(self, real_executor_mocked):
+        """测试设备在线时is_online返回True。"""
+        real_executor_mocked._run_adb_command = AsyncMock(
+            return_value=ShellResult(
+                success=True,
+                stdout="device",
+                stderr="",
+                exit_code=0
+            )
+        )
+
+        online = await real_executor_mocked.is_online()
+        assert online is True
+
+    async def test_is_online_device_offline(self, real_executor_mocked):
+        """测试设备离线时is_online返回False。"""
+        real_executor_mocked._run_adb_command = AsyncMock(
+            return_value=ShellResult(
+                success=True,
+                stdout="offline",
+                stderr="",
+                exit_code=0
+            )
+        )
+
+        online = await real_executor_mocked.is_online()
+        assert online is False
+
+    async def test_is_online_unauthorized(self, real_executor_mocked):
+        """测试未授权设备is_online返回False。"""
+        real_executor_mocked._run_adb_command = AsyncMock(
+            return_value=ShellResult(
+                success=True,
+                stdout="unauthorized",
+                stderr="",
+                exit_code=0
+            )
+        )
+
+        online = await real_executor_mocked.is_online()
+        assert online is False
+
+    async def test_get_properties_success(self, real_executor_mocked):
+        """测试get_properties成功解析属性。"""
+        mock_output = """
+[ro.product.model]: [Pixel 7]
+[ro.product.brand]: [google]
+[ro.build.version.release]: [14]
+[ro.build.version.sdk]: [34]
+"""
+        real_executor_mocked._run_adb_command = AsyncMock(
+            return_value=ShellResult(
+                success=True,
+                stdout=mock_output,
+                stderr="",
+                exit_code=0
+            )
+        )
+
+        properties = await real_executor_mocked.get_properties()
+
+        assert properties["ro.product.model"] == "Pixel 7"
+        assert properties["ro.product.brand"] == "google"
+        assert properties["ro.build.version.release"] == "14"
+        assert properties["ro.build.version.sdk"] == "34"
+
+    async def test_get_properties_empty_on_failure(self, real_executor_mocked):
+        """测试get_properties失败时返回空字典。"""
+        real_executor_mocked._run_adb_command = AsyncMock(
+            return_value=ShellResult(
+                success=False,
+                stdout="",
+                stderr="error: device not found",
+                exit_code=1
+            )
+        )
+
+        properties = await real_executor_mocked.get_properties()
+        assert properties == {}
+
+    async def test_get_battery_info_success(self, real_executor_mocked):
+        """测试get_battery_info成功解析电池信息。"""
+        mock_output = """
+Current Battery Service state:
+  AC powered: false
+  USB powered: true
+  level: 85
+  status: 3
+  temperature: 250
+"""
+        real_executor_mocked._run_adb_command = AsyncMock(
+            return_value=ShellResult(
+                success=True,
+                stdout=mock_output,
+                stderr="",
+                exit_code=0
+            )
+        )
+
+        battery = await real_executor_mocked.get_battery_info()
+
+        assert battery.level == 85
+        assert battery.status == "discharging"
+        assert battery.temperature == 25
+
+    async def test_get_storage_info_success(self, real_executor_mocked):
+        """测试get_storage_info成功解析存储信息。"""
+        # df命令输出示例
+        mock_output = """Filesystem           1K-blocks      Used Available Use% Mounted on
+/dev/block/dm-0       65536000  52428800  13107200  80% /sdcard
+"""
+        real_executor_mocked._run_adb_command = AsyncMock(
+            return_value=ShellResult(
+                success=True,
+                stdout=mock_output,
+                stderr="",
+                exit_code=0
+            )
+        )
+
+        storage = await real_executor_mocked.get_storage_info()
+
+        assert storage.total > 0
+        assert storage.available > 0
+        assert storage.path == "/sdcard"
+
+    async def test_check_boot_completed_true(self, real_executor_mocked):
+        """测试check_boot_completed返回True。"""
+        real_executor_mocked._run_adb_command = AsyncMock(
+            return_value=ShellResult(
+                success=True,
+                stdout="1",
+                stderr="",
+                exit_code=0
+            )
+        )
+
+        result = await real_executor_mocked.check_boot_completed()
+        assert result is True
+
+    async def test_check_boot_completed_false(self, real_executor_mocked):
+        """测试check_boot_completed返回False。"""
+        real_executor_mocked._run_adb_command = AsyncMock(
+            return_value=ShellResult(
+                success=True,
+                stdout="0",
+                stderr="",
+                exit_code=0
+            )
+        )
+
+        result = await real_executor_mocked.check_boot_completed()
+        assert result is False
+
+    async def test_execute_shell_success(self, real_executor_mocked):
+        """测试execute_shell成功执行。"""
+        real_executor_mocked._run_adb_command = AsyncMock(
+            return_value=ShellResult(
+                success=True,
+                stdout="file1.txt\nfile2.txt",
+                stderr="",
+                exit_code=0
+            )
+        )
+
+        result = await real_executor_mocked.execute_shell("ls /sdcard")
+
+        assert result.success is True
+        assert "file1.txt" in result.stdout
+
+    async def test_execute_shell_with_timeout(self, real_executor_mocked):
+        """测试execute_shell带超时。"""
+        real_executor_mocked._run_adb_command = AsyncMock(
+            return_value=ShellResult(
+                success=True,
+                stdout="output",
+                stderr="",
+                exit_code=0
+            )
+        )
+
+        result = await real_executor_mocked.execute_shell("ls", timeout=30)
+
+        assert result.success is True
+
+    async def test_run_monkey_success(self, real_executor_mocked):
+        """测试run_monkey成功执行。"""
+        mock_output = """
+Events injected: 1000
+## Network stats: elapsed time=5000ms
+Monkey finished
+"""
+        real_executor_mocked._run_adb_command = AsyncMock(
+            return_value=ShellResult(
+                success=True,
+                stdout=mock_output,
+                stderr="",
+                exit_code=0,
+                duration_ms=5000
+            )
+        )
+
+        result = await real_executor_mocked.run_monkey("com.test.app", 1000)
+
+        assert result.success is True
+        assert result.total_events == 1000
+        assert result.crash_count == 0
+
+    async def test_run_monkey_with_crashes(self, real_executor_mocked):
+        """测试run_monkey检测crashes。"""
+        mock_output = """
+Events injected: 500
+// CRASH: com.test.app (pid 1234)
+** Monkey aborted due to crash
+"""
+        real_executor_mocked._run_adb_command = AsyncMock(
+            return_value=ShellResult(
+                success=True,
+                stdout=mock_output,
+                stderr="",
+                exit_code=0,
+                duration_ms=2000
+            )
+        )
+
+        result = await real_executor_mocked.run_monkey("com.test.app", 500)
+
+        assert result.crash_count > 0
+
+    async def test_run_monkey_with_anrs(self, real_executor_mocked):
+        """测试run_monkey检测ANRs。"""
+        mock_output = """
+Events injected: 500
+// ANR: com.test.app
+"""
+        real_executor_mocked._run_adb_command = AsyncMock(
+            return_value=ShellResult(
+                success=True,
+                stdout=mock_output,
+                stderr="",
+                exit_code=0
+            )
+        )
+
+        result = await real_executor_mocked.run_monkey("com.test.app", 500)
+
+        assert result.anr_count > 0
+
+    async def test_push_file_success(self, real_executor_mocked):
+        """测试push_file成功。"""
+        real_executor_mocked._run_adb_command = AsyncMock(
+            return_value=ShellResult(
+                success=True,
+                stdout="file pushed successfully",
+                stderr="",
+                exit_code=0
+            )
+        )
+
+        result = await real_executor_mocked.push_file("/local/file", "/remote/file")
+        assert result is True
+
+    async def test_push_file_failure(self, real_executor_mocked):
+        """测试push_file失败。"""
+        real_executor_mocked._run_adb_command = AsyncMock(
+            return_value=ShellResult(
+                success=False,
+                stdout="",
+                stderr="error: cannot push",
+                exit_code=1
+            )
+        )
+
+        result = await real_executor_mocked.push_file("/local/file", "/remote/file")
+        assert result is False
+
+    async def test_pull_file_success(self, real_executor_mocked):
+        """测试pull_file成功。"""
+        real_executor_mocked._run_adb_command = AsyncMock(
+            return_value=ShellResult(
+                success=True,
+                stdout="file pulled successfully",
+                stderr="",
+                exit_code=0
+            )
+        )
+
+        result = await real_executor_mocked.pull_file("/remote/file", "/local/file")
+        assert result is True
+
+    async def test_get_logcat_success(self, real_executor_mocked):
+        """测试get_logcat成功。"""
+        mock_logcat = "I/ActivityManager: Displayed activity\nD/DebugTag: Debug message\n"
+        real_executor_mocked._run_adb_command = AsyncMock(
+            return_value=ShellResult(
+                success=True,
+                stdout=mock_logcat,
+                stderr="",
+                exit_code=0
+            )
+        )
+
+        logcat = await real_executor_mocked.get_logcat(100)
+        assert "ActivityManager" in logcat
+
+
+class TestRealDeviceExecutorEdgeCases:
+    """测试RealDeviceExecutor边缘情况。"""
+
+    @pytest.fixture
+    def real_executor(self):
+        """创建RealDeviceExecutor实例。"""
+        from chaosdroid.executors.real_executor import RealDeviceExecutor
+        return RealDeviceExecutor("test_serial")
+
+    async def test_adb_timeout(self, real_executor):
+        """测试ADB命令超时。"""
+        # Mock超时场景
+        async def mock_run_with_timeout(*args, **kwargs):
+            from chaosdroid.executors.base import ShellResult
+            return ShellResult(
+                success=False,
+                stdout="",
+                stderr="Command timed out",
+                exit_code=-1,
+                duration_ms=30000
+            )
+
+        real_executor._run_adb_command = mock_run_with_timeout
+
+        result = await real_executor.execute_shell("long_running_command", timeout=30)
+
+        assert result.success is False
+        assert "timeout" in result.stderr.lower()
+
+    async def test_adb_not_found(self, real_executor):
+        """测试ADB未找到。"""
+        async def mock_run_with_file_not_found(*args, **kwargs):
+            from chaosdroid.executors.base import ShellResult
+            return ShellResult(
+                success=False,
+                stdout="",
+                stderr="ADB not found: invalid_adb_path",
+                exit_code=-1
+            )
+
+        real_executor._run_adb_command = mock_run_with_file_not_found
+
+        result = await real_executor.is_online()
+
+        assert result is False
+
+    async def test_empty_getprop_output(self, real_executor):
+        """测试空getprop输出。"""
+        real_executor._run_adb_command = AsyncMock(
+            return_value=ShellResult(
+                success=True,
+                stdout="",
+                stderr="",
+                exit_code=0
+            )
+        )
+
+        properties = await real_executor.get_properties()
+        assert properties == {}

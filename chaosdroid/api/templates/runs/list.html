@@ -1,39 +1,69 @@
 {% extends "base.html" %}
 
-{% block title %}执行列表 - ChaosDroid{% endblock %}
+{% block title %}执行记录 - ChaosDroid{% endblock %}
 
 {% block content %}
-<div class="page-header">
-    <h1>执行记录</h1>
-</div>
-
-<div class="filters">
-    <div class="form-group">
-        <label>状态</label>
-        <select class="form-control" name="status" onchange="location.href='/runs?status='+this.value">
-            <option value="">全部</option>
-            {% for status in status_options %}
-            <option value="{{ status }}" {% if filters.status == status %}selected{% endif %}>{{ status }}</option>
-            {% endfor %}
-        </select>
-    </div>
-    <div class="form-group">
-        <label>场景</label>
-        <select class="form-control" name="scenario_id" onchange="location.href='/runs?scenario_id='+this.value">
-            <option value="">全部</option>
-            {% for s in scenarios %}
-            <option value="{{ s.id }}" {% if filters.scenario_id == s.id %}selected{% endif %}>{{ s.name }}</option>
-            {% endfor %}
-        </select>
-    </div>
-</div>
-
 <div class="card">
-    <div class="card-header">
-        <h2>执行列表</h2>
+    <div class="card-header">执行记录</div>
+
+    <!-- 筛选栏 -->
+    <div class="filter-bar">
+        <div class="form-group">
+            <label class="form-label" for="filter-status">状态</label>
+            <select id="filter-status" class="form-control"
+                    hx-get="/runs"
+                    hx-trigger="change"
+                    hx-target="#runs-table"
+                    hx-include="[name='scenario_id'],[name='device_serial']"
+                    hx-boost="true">
+                <option value="">全部</option>
+                <option value="queued">排队中</option>
+                <option value="preparing">准备中</option>
+                <option value="injecting">注入中</option>
+                <option value="validating">验证中</option>
+                <option value="recovering">恢复中</option>
+                <option value="passed">通过</option>
+                <option value="failed">失败</option>
+                <option value="partial">部分通过</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="filter-scenario">场景</label>
+            <select id="filter-scenario" name="scenario_id" class="form-control"
+                    hx-get="/runs"
+                    hx-trigger="change"
+                    hx-target="#runs-table"
+                    hx-include="[name='status'],[name='device_serial']"
+                    hx-boost="true">
+                <option value="">全部</option>
+                {% for scenario in scenarios %}
+                <option value="{{ scenario.id }}">{{ scenario.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label" for="filter-device">设备</label>
+            <input type="text" id="filter-device" name="device_serial" class="form-control"
+                   placeholder="输入设备序列号"
+                   hx-get="/runs"
+                   hx-trigger="keyup changed delay:500ms"
+                   hx-target="#runs-table"
+                   hx-include="[name='status'],[name='scenario_id']"
+                   hx-boost="true">
+        </div>
+
+        <div class="form-group" style="align-self: flex-end;">
+            <a href="/runs" class="btn btn-secondary" hx-boost="true">
+                清除筛选
+            </a>
+        </div>
     </div>
-    <div class="card-body">
-        {% if runs %}
+
+    <!-- 执行列表表格 -->
+    <div id="runs-table">
+        {% if runs and runs|length > 0 %}
         <table class="table">
             <thead>
                 <tr>
@@ -42,42 +72,84 @@
                     <th>设备</th>
                     <th>状态</th>
                     <th>开始时间</th>
-                    <th>结束时间</th>
+                    <th>持续时间</th>
                     <th>操作</th>
                 </tr>
             </thead>
             <tbody>
                 {% for run in runs %}
-                <tr>
+                <tr id="run-row-{{ run.id }}">
                     <td>{{ run.id }}</td>
                     <td>
-                        <a href="/scenarios/{{ run.scenario_template_id }}">{{ run.scenario_template and run.scenario_template.name or '-' }}</a>
+                        {% if run.scenario_template %}
+                            <a href="/scenarios/{{ run.scenario_template.id }}" hx-boost="true">
+                                {{ run.scenario_template.name }}
+                            </a>
+                        {% else %}
+                            未知场景
+                        {% endif %}
                     </td>
                     <td>{{ run.device_serial }}</td>
                     <td>
-                        {% if run.status == 'passed' %}
-                        <span class="badge badge-success">通过</span>
-                        {% elif run.status == 'failed' %}
-                        <span class="badge badge-danger">失败</span>
-                        {% elif run.status == 'partial' %}
-                        <span class="badge badge-warning">部分通过</span>
-                        {% elif run.status in ['queued', 'preparing', 'injecting', 'validating', 'recovering'] %}
-                        <span class="badge badge-info">{{ run.status }}</span>
+                        {% set status = run.status %}
+                        <span class="badge badge-{{ status }}">
+                            {% if status == 'queued' %}
+                                排队中
+                            {% elif status == 'preparing' %}
+                                准备中
+                            {% elif status == 'injecting' %}
+                                注入中
+                            {% elif status == 'validating' %}
+                                验证中
+                            {% elif status == 'recovering' %}
+                                恢复中
+                            {% elif status == 'passed' %}
+                                通过
+                            {% elif status == 'failed' %}
+                                失败
+                            {% elif status == 'partial' %}
+                                部分通过
+                            {% else %}
+                                {{ status }}
+                            {% endif %}
+                        </span>
+                    </td>
+                    <td>{{ run.started_at.strftime('%Y-%m-%d %H:%M:%S') if run.started_at else '未开始' }}</td>
+                    <td>
+                        {% if run.started_at and run.finished_at %}
+                            {% set duration = (run.finished_at - run.started_at).total_seconds() %}
+                            {% if duration < 60 %}
+                                {{ duration|int }}秒
+                            {% elif duration < 3600 %}
+                                {{ (duration / 60)|int }}分钟
+                            {% else %}
+                                {{ (duration / 3600)|int }}小时{{ ((duration % 3600) / 60)|int }}分钟
+                            {% endif %}
+                        {% elif run.started_at %}
+                            <span class="htmx-indicator">运行中...</span>
                         {% else %}
-                        <span class="badge badge-secondary">{{ run.status }}</span>
+                            -
                         {% endif %}
                     </td>
-                    <td>{{ run.started_at or '-' }}</td>
-                    <td>{{ run.finished_at or '-' }}</td>
                     <td>
-                        <a href="/runs/{{ run.id }}" class="btn btn-sm btn-primary">详情</a>
-                        {% if run.status == 'queued' %}
-                        <button class="btn btn-sm btn-danger"
-                                hx-delete="/api/runs/{{ run.id }}"
-                                hx-confirm="确定要取消此执行吗？">
-                            取消
-                        </button>
-                        {% endif %}
+                        <div style="display: flex; gap: 0.5rem;">
+                            <a href="/runs/{{ run.id }}" class="btn btn-secondary btn-sm" hx-boost="true">
+                                详情
+                            </a>
+                            {% if run.status in ['queued', 'preparing'] %}
+                            <button class="btn btn-danger btn-sm"
+                                    hx-delete="/api/runs/{{ run.id }}"
+                                    hx-target="#run-row-{{ run.id }}"
+                                    hx-swap="outerHTML swap:0.5s"
+                                    hx-confirm="确定要取消此执行吗？">
+                                取消
+                            </button>
+                            {% elif run.status in ['passed', 'failed', 'partial'] and run.report %}
+                            <a href="/reports/{{ run.report.id }}" class="btn btn-primary btn-sm" hx-boost="true">
+                                报告
+                            </a>
+                            {% endif %}
+                        </div>
                     </td>
                 </tr>
                 {% endfor %}
@@ -85,8 +157,8 @@
         </table>
         {% else %}
         <div class="empty-state">
+            <div class="empty-state-icon">📝</div>
             <p>暂无执行记录</p>
-            <a href="/scenarios" class="btn btn-primary">选择场景执行</a>
         </div>
         {% endif %}
     </div>

@@ -1,127 +1,365 @@
 {% extends "base.html" %}
 
-{% block title %}执行详情 #{{ run.id }} - ChaosDroid{% endblock %}
+{% block title %}执行 #{{ run.id }} - ChaosDroid{% endblock %}
 
 {% block content %}
-<div class="page-header">
-    <h1>执行详情 #{{ run.id }}</h1>
-    <div style="margin-top: 10px;">
-        {% if run.status == 'passed' %}
-        <span class="badge badge-success">通过</span>
-        {% elif run.status == 'failed' %}
-        <span class="badge badge-danger">失败</span>
-        {% elif run.status == 'partial' %}
-        <span class="badge badge-warning">部分通过</span>
-        {% else %}
-        <span class="badge badge-info">{{ run.status }}</span>
+<!-- 详情头部 -->
+<div class="detail-header">
+    <h1 class="detail-title">执行 #{{ run.id }}</h1>
+    <div class="detail-actions">
+        {% if run.status in ['passed', 'failed', 'partial'] and run.report %}
+        <a href="/reports/{{ run.report.id }}" class="btn btn-primary" hx-boost="true">
+            查看报告
+        </a>
+        {% endif %}
+        {% if run.status in ['queued', 'preparing'] %}
+        <button class="btn btn-danger"
+                hx-delete="/api/runs/{{ run.id }}"
+                hx-target="#flash-messages"
+                hx-swap="innerHTML"
+                hx-confirm="确定要取消此执行吗？"
+                hx-redirect="/runs">
+            取消执行
+        </button>
+        {% endif %}
+        {% if run.status == 'queued' %}
+        <button class="btn btn-success"
+                hx-post="/api/runs/{{ run.id }}/execute"
+                hx-target="#run-status"
+                hx-swap="innerHTML"
+                hx-indicator="#execute-indicator">
+            <span id="execute-indicator" class="htmx-indicator">执行中...</span>
+            开始执行
+        </button>
         {% endif %}
     </div>
 </div>
 
+<!-- 执行摘要 -->
 <div class="card">
-    <div class="card-header">
-        <h2>基本信息</h2>
-    </div>
-    <div class="card-body">
-        <table class="table">
-            <tr>
-                <th width="200">执行ID</th>
-                <td>{{ run.id }}</td>
-            </tr>
-            <tr>
-                <th>场景</th>
-                <td>
-                    {% if run.scenario_template %}
-                    <a href="/scenarios/{{ run.scenario_template.id }}">{{ run.scenario_template.name }}</a>
-                    {% else %}
-                    -
-                    {% endif %}
-                </td>
-            </tr>
-            <tr>
-                <th>设备序列号</th>
-                <td>{{ run.device_serial }}</td>
-            </tr>
-            <tr>
-                <th>注入阶段</th>
-                <td>{{ run.inject_stage }}</td>
-            </tr>
-            <tr>
-                <th>开始时间</th>
-                <td>{{ run.started_at or '-' }}</td>
-            </tr>
-            <tr>
-                <th>结束时间</th>
-                <td>{{ run.finished_at or '-' }}</td>
-            </tr>
-            <tr>
-                <th>执行状态</th>
-                <td>{{ run.status }}</td>
-            </tr>
-        </table>
-    </div>
-</div>
-
-<div class="card">
-    <div class="card-header">
-        <h2>执行步骤</h2>
-    </div>
-    <div class="card-body">
-        {% if steps %}
-        <div class="timeline">
-            {% for step in steps %}
-            <div class="timeline-item {{ 'success' if step.status == 'success' else 'failed' if step.status == 'failed' else 'running' }}">
-                <h4>{{ step.step_type }}</h4>
-                <p>
-                    <small>
-                        {% if step.status == 'success' %}
-                        <span class="badge badge-success">成功</span>
-                        {% elif step.status == 'failed' %}
-                        <span class="badge badge-danger">失败</span>
-                        {% else %}
-                        <span class="badge badge-secondary">{{ step.status }}</span>
-                        {% endif %}
-                        &nbsp;{{ step.started_at or '-' }} → {{ step.finished_at or '-' }}
-                    </small>
-                </p>
-                {% if step.summary_json %}
-                <details>
-                    <summary>详细信息</summary>
-                    <pre style="background: #f5f5f5; padding: 10px; overflow-x: auto;">{{ step.summary_json }}</pre>
-                </details>
+    <div class="card-header">执行摘要</div>
+    <div class="property-list">
+        <div class="property-item">
+            <span class="property-label">关联场景</span>
+            <span class="property-value">
+                {% if run.scenario_template %}
+                    <a href="/scenarios/{{ run.scenario_template.id }}" hx-boost="true">
+                        {{ run.scenario_template.name }}
+                    </a>
+                {% else %}
+                    未知场景
                 {% endif %}
-            </div>
-            {% endfor %}
+            </span>
         </div>
-        {% else %}
-        <p class="empty-state">暂无执行步骤</p>
+        <div class="property-item">
+            <span class="property-label">设备序列号</span>
+            <span class="property-value">{{ run.device_serial }}</span>
+        </div>
+        <div class="property-item">
+            <span class="property-label">执行状态</span>
+            <span class="property-value" id="run-status">
+                {% set status = run.status %}
+                <span class="badge badge-{{ status }}">
+                    {% if status == 'queued' %}
+                        排队中
+                    {% elif status == 'preparing' %}
+                        准备中
+                    {% elif status == 'injecting' %}
+                        注入中
+                    {% elif status == 'validating' %}
+                        验证中
+                    {% elif status == 'recovering' %}
+                        恢复中
+                    {% elif status == 'passed' %}
+                        通过
+                    {% elif status == 'failed' %}
+                        失败
+                    {% elif status == 'partial' %}
+                        部分通过
+                    {% else %}
+                        {{ status }}
+                    {% endif %}
+                </span>
+            </span>
+        </div>
+        <div class="property-item">
+            <span class="property-label">注入阶段</span>
+            <span class="property-value">
+                {% if run.inject_stage == 'precheck' %}
+                    前置检查
+                {% elif run.inject_stage == 'prepare' %}
+                    准备阶段
+                {% elif run.inject_stage == 'upgrading' %}
+                    升级进行中
+                {% elif run.inject_stage == 'reboot_wait' %}
+                    重启等待
+                {% elif run.inject_stage == 'post_boot' %}
+                    启动后
+                {% elif run.inject_stage == 'post_validate' %}
+                    验证后
+                {% else %}
+                    {{ run.inject_stage }}
+                {% endif %}
+            </span>
+        </div>
+        <div class="property-item">
+            <span class="property-label">开始时间</span>
+            <span class="property-value">{{ run.started_at.strftime('%Y-%m-%d %H:%M:%S') if run.started_at else '未开始' }}</span>
+        </div>
+        <div class="property-item">
+            <span class="property-label">结束时间</span>
+            <span class="property-value">{{ run.finished_at.strftime('%Y-%m-%d %H:%M:%S') if run.finished_at else '运行中' }}</span>
+        </div>
+        <div class="property-item">
+            <span class="property-label">持续时间</span>
+            <span class="property-value">
+                {% if run.started_at and run.finished_at %}
+                    {% set duration = (run.finished_at - run.started_at).total_seconds() %}
+                    {% if duration < 60 %}
+                        {{ duration|int }}秒
+                    {% elif duration < 3600 %}
+                        {{ (duration / 60)|int }}分钟
+                    {% else %}
+                        {{ (duration / 3600)|int }}小时{{ ((duration % 3600) / 60)|int }}分钟
+                    {% endif %}
+                {% elif run.started_at %}
+                    <span id="duration-counter"
+                          hx-get="/api/runs/{{ run.id }}/duration"
+                          hx-trigger="every 5s"
+                          hx-swap="innerHTML">
+                        计算中...
+                    </span>
+                {% else %}
+                    -
+                {% endif %}
+            </span>
+        </div>
+        {% if run.result_summary_json %}
+        <div class="property-item">
+            <span class="property-label">故障注入结果</span>
+            <span class="property-value">
+                {% set result = run.result_summary_json %}
+                {% if 'fault_injected' in result and result['fault_injected'] %}
+                    <span class="badge badge-success">注入成功</span>
+                {% elif 'fault_injected' in result %}
+                    <span class="badge badge-danger">注入失败</span>
+                {% else %}
+                    未知
+                {% endif %}
+            </span>
+        </div>
+        <div class="property-item">
+            <span class="property-label">验证结果</span>
+            <span class="property-value">
+                {% if 'validation_passed' in result and result['validation_passed'] %}
+                    <span class="badge badge-success">验证通过</span>
+                {% elif 'validation_passed' in result %}
+                    <span class="badge badge-danger">验证失败</span>
+                {% else %}
+                    未知
+                {% endif %}
+            </span>
+        </div>
+        <div class="property-item">
+            <span class="property-label">恢复结果</span>
+            <span class="property-value">
+                {% if 'recovery_passed' in result and result['recovery_passed'] %}
+                    <span class="badge badge-success">恢复成功</span>
+                {% elif 'recovery_passed' in result %}
+                    <span class="badge badge-danger">恢复失败</span>
+                {% else %}
+                    未知
+                {% endif %}
+            </span>
+        </div>
+        <div class="property-item">
+            <span class="property-label">风险等级</span>
+            <span class="property-value">
+                {% set risk_level = result.get('risk_level', 'unknown') %}
+                {% if risk_level == 'low' %}
+                    <span class="badge badge-success">低风险</span>
+                {% elif risk_level == 'medium' %}
+                    <span class="badge badge-warning">中风险</span>
+                {% elif risk_level == 'high' %}
+                    <span class="badge badge-danger">高风险</span>
+                {% elif risk_level == 'critical' %}
+                    <span class="badge badge-danger">严重风险</span>
+                {% else %}
+                    <span class="badge badge-secondary">未知</span>
+                {% endif %}
+            </span>
+        </div>
         {% endif %}
     </div>
 </div>
 
+<!-- 步骤时间线 -->
 <div class="card">
-    <div class="card-header">
-        <h2>操作</h2>
-    </div>
-    <div class="card-body">
-        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-            {% if run.status in ['passed', 'failed', 'partial'] %}
-            <a href="/reports?run_id={{ run.id }}" class="btn btn-primary">查看报告</a>
+    <div class="card-header">步骤时间线</div>
+    <div class="timeline" id="steps-timeline">
+        {% if run.steps and run.steps|length > 0 %}
+        {% for step in run.steps %}
+        <div class="timeline-item {{ step.status }}"
+             id="step-{{ step.id }}">
+            <div class="timeline-header">
+                <span class="timeline-title">
+                    {% if step.step_type == 'precheck' %}
+                        前置检查
+                    {% elif step.step_type == 'inject' %}
+                        故障注入
+                    {% elif step.step_type == 'observe' %}
+                        观测采集
+                    {% elif step.step_type == 'validate' %}
+                        验证判定
+                    {% elif step.step_type == 'recover' %}
+                        恢复操作
+                    {% elif step.step_type == 'collect' %}
+                        产物收集
+                    {% else %}
+                        {{ step.step_type }}
+                    {% endif %}
+                    (步骤 {{ step.step_order }})
+                </span>
+                <span class="timeline-time">
+                    {% if step.started_at %}
+                        {{ step.started_at.strftime('%H:%M:%S') }}
+                    {% endif %}
+                    {% if step.finished_at %}
+                        - {{ step.finished_at.strftime('%H:%M:%S') }}
+                    {% endif %}
+                </span>
+            </div>
+            <div class="timeline-content">
+                <span class="badge
+                    {% if step.status == 'pending' %}
+                        badge-pending
+                    {% elif step.status == 'running' %}
+                        badge-running
+                    {% elif step.status == 'success' %}
+                        badge-success-step
+                    {% elif step.status == 'failed' %}
+                        badge-failed-step
+                    {% elif step.status == 'skipped' %}
+                        badge-skipped
+                    {% elif step.status == 'timeout' %}
+                        badge-timeout
+                    {% endif %}">
+                    {% if step.status == 'pending' %}
+                        待执行
+                    {% elif step.status == 'running' %}
+                        执行中
+                    {% elif step.status == 'success' %}
+                        成功
+                    {% elif step.status == 'failed' %}
+                        失败
+                    {% elif step.status == 'skipped' %}
+                        跳过
+                    {% elif step.status == 'timeout' %}
+                        超时
+                    {% else %}
+                        {{ step.status }}
+                    {% endif %}
+                </span>
+            </div>
+            {% if step.summary_json %}
+            <div style="margin-top: 0.5rem; font-size: 0.875rem;">
+                <details>
+                    <summary>步骤详情</summary>
+                    <pre style="background: var(--bg-color); padding: 0.5rem; border-radius: 0.25rem; overflow-x: auto; margin-top: 0.5rem;">{{ step.summary_json }}</pre>
+                </details>
+            </div>
             {% endif %}
-            {% if run.status == 'queued' %}
-            <button class="btn btn-danger"
-                    hx-delete="/api/runs/{{ run.id }}"
-                    hx-confirm="确定要取消此执行吗？">
-                取消执行
-            </button>
-            {% endif %}
-            <button class="btn btn-success"
-                    hx-post="/api/runs/{{ run.id }}/execute"
-                    hx-confirm="确定要重新执行吗？">
-                重新执行
-            </button>
-            <a href="/runs" class="btn btn-secondary">返回列表</a>
         </div>
+        {% endfor %}
+        {% else %}
+        <p style="color: var(--text-muted);">暂无步骤记录</p>
+        {% endif %}
     </div>
 </div>
+
+<!-- 执行产物 -->
+<div class="card">
+    <div class="card-header">执行产物</div>
+    <div id="artifacts-list">
+        {% if run.artifacts and run.artifacts|length > 0 %}
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>类型</th>
+                    <th>关联步骤</th>
+                    <th>文件大小</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for artifact in run.artifacts %}
+                <tr>
+                    <td>
+                        {% if artifact.artifact_type == 'logcat' %}
+                            Logcat日志
+                        {% elif artifact.artifact_type == 'getprop' %}
+                            属性摘要
+                        {% elif artifact.artifact_type == 'battery' %}
+                            电池信息
+                        {% elif artifact.artifact_type == 'monkey' %}
+                            Monkey输出
+                        {% elif artifact.artifact_type == 'stdout' %}
+                            标准输出
+                        {% elif artifact.artifact_type == 'stderr' %}
+                            标准错误
+                        {% elif artifact.artifact_type == 'snapshot' %}
+                            状态快照
+                        {% elif artifact.artifact_type == 'summary' %}
+                            步骤摘要
+                        {% else %}
+                            {{ artifact.artifact_type }}
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if artifact.step %}
+                            步骤 {{ artifact.step.step_order }} ({{ artifact.step.step_type }})
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if artifact.size %}
+                            {% if artifact.size < 1024 %}
+                                {{ artifact.size }}字节
+                            {% elif artifact.size < 1024 * 1024 %}
+                                {{ (artifact.size / 1024)|round(2) }}KB
+                            {% else %}
+                                {{ (artifact.size / 1024 / 1024)|round(2) }}MB
+                            {% endif %}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="/api/artifacts/{{ artifact.id }}/download"
+                           class="btn btn-secondary btn-sm"
+                           target="_blank">
+                            下载
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <p>暂无执行产物</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // 如果执行正在进行，定期刷新状态
+    {% if run.status in ['queued', 'preparing', 'injecting', 'validating', 'recovering'] %}
+    htmx.trigger('#run-status', 'refresh', {interval: 5000});
+    {% endif %}
+</script>
 {% endblock %}

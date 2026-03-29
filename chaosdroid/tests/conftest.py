@@ -32,4 +32,4 @@ async def setup_test_environment():
     if "CHAOSDROID_DATABASE_PATH" in os.environ:
         del os.environ["CHAOSDROID_DATABASE_PATH"]
     if "CHAOSDROID_LOG_LEVEL" in os.environ:
-        del os.environ["CHAOSDROID_LOG_LEVEL"
+        del os.environ["CHAOSDROID_LOG_LEVEL"]
