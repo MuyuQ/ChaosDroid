@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}执行列表 - ChaosDroid{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>执行记录</h1>
+</div>
+
+<div class="filters">
+    <div class="form-group">
+        <label>状态</label>
+        <select class="form-control" name="status" onchange="location.href='/runs?status='+this.value">
+            <option value="">全部</option>
+            {% for status in status_options %}
+            <option value="{{ status }}" {% if filters.status == status %}selected{% endif %}>{{ status }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="form-group">
+        <label>场景</label>
+        <select class="form-control" name="scenario_id" onchange="location.href='/runs?scenario_id='+this.value">
+            <option value="">全部</option>
+            {% for s in scenarios %}
+            <option value="{{ s.id }}" {% if filters.scenario_id == s.id %}selected{% endif %}>{{ s.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2>执行列表</h2>
+    </div>
+    <div class="card-body">
+        {% if runs %}
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>场景</th>
+                    <th>设备</th>
+                    <th>状态</th>
+                    <th>开始时间</th>
+                    <th>结束时间</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for run in runs %}
+                <tr>
+                    <td>{{ run.id }}</td>
+                    <td>
+                        <a href="/scenarios/{{ run.scenario_template_id }}">{{ run.scenario_template and run.scenario_template.name or '-' }}</a>
+                    </td>
+                    <td>{{ run.device_serial }}</td>
+                    <td>
+                        {% if run.status == 'passed' %}
+                        <span class="badge badge-success">通过</span>
+                        {% elif run.status == 'failed' %}
+                        <span class="badge badge-danger">失败</span>
+                        {% elif run.status == 'partial' %}
+                        <span class="badge badge-warning">部分通过</span>
+                        {% elif run.status in ['queued', 'preparing', 'injecting', 'validating', 'recovering'] %}
+                        <span class="badge badge-info">{{ run.status }}</span>
+                        {% else %}
+                        <span class="badge badge-secondary">{{ run.status }}</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ run.started_at or '-' }}</td>
+                    <td>{{ run.finished_at or '-' }}</td>
+                    <td>
+                        <a href="/runs/{{ run.id }}" class="btn btn-sm btn-primary">详情</a>
+                        {% if run.status == 'queued' %}
+                        <button class="btn btn-sm btn-danger"
+                                hx-delete="/api/runs/{{ run.id }}"
+                                hx-confirm="确定要取消此执行吗？">
+                            取消
+                        </button>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <p>暂无执行记录</p>
+            <a href="/scenarios" class="btn btn-primary">选择场景执行</a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

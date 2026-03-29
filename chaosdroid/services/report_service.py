@@ -6,7 +6,7 @@
 
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -438,7 +438,7 @@ async def get_report_statistics(
         today_count = today_result.scalar() or 0
 
         # 本周报告数
-        week_start = today - datetime.timedelta(days=today.weekday())
+        week_start = today - timedelta(days=today.weekday())
         week_result = await sess.execute(
             select(func.count(Report.id)).where(Report.created_at >= week_start)
         )

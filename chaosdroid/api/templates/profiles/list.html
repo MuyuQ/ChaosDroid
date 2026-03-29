@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+
+{% block title %}配置管理 - ChaosDroid{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>配置管理</h1>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2>故障配置 (Fault Profiles)</h2>
+        <a href="/api/scenarios" class="btn btn-sm btn-primary">创建</a>
+    </div>
+    <div class="card-body">
+        {% if fault_profiles %}
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>名称</th>
+                    <th>故障类型</th>
+                    <th>风险等级</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for profile in fault_profiles %}
+                <tr>
+                    <td>{{ profile.id }}</td>
+                    <td>{{ profile.name }}</td>
+                    <td>{{ profile.fault_type }}</td>
+                    <td>
+                        <span class="badge badge-{{ 'danger' if profile.risk_level == 'high' or profile.risk_level == 'critical' else 'warning' if profile.risk_level == 'medium' else 'success' }}">
+                            {{ profile.risk_level }}
+                        </span>
+                    </td>
+                    <td>
+                        <button class="btn btn-sm btn-danger"
+                                hx-delete="/api/fault-profiles/{{ profile.id }}">
+                            删除
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="empty-state">暂无故障配置</p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2>验证配置 (Validation Profiles)</h2>
+        <a href="/api/scenarios" class="btn btn-sm btn-primary">创建</a>
+    </div>
+    <div class="card-body">
+        {% if validation_profiles %}
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>名称</th>
+                    <th>超时时间</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for profile in validation_profiles %}
+                <tr>
+                    <td>{{ profile.id }}</td>
+                    <td>{{ profile.name }}</td>
+                    <td>{{ profile.timeout_sec }}秒</td>
+                    <td>
+                        <button class="btn btn-sm btn-danger"
+                                hx-delete="/api/validation-profiles/{{ profile.id }}">
+                            删除
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="empty-state">暂无验证配置</p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2>恢复配置 (Recovery Profiles)</h2>
+        <a href="/api/scenarios" class="btn btn-sm btn-primary">创建</a>
+    </div>
+    <div class="card-body">
+        {% if recovery_profiles %}
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>名称</th>
+                    <th>允许人工介入</th>
+                    <th>超时时间</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for profile in recovery_profiles %}
+                <tr>
+                    <td>{{ profile.id }}</td>
+                    <td>{{ profile.name }}</td>
+                    <td>{{ '是' if profile.manual_intervention_allowed else '否' }}</td>
+                    <td>{{ profile.timeout_sec }}秒</td>
+                    <td>
+                        <button class="btn btn-sm btn-danger"
+                                hx-delete="/api/recovery-profiles/{{ profile.id }}">
+                            删除
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="empty-state">暂无恢复配置</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

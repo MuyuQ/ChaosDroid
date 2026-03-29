@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}首页 - ChaosDroid{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>ChaosDroid 控制台</h1>
+    <p>Android故障注入测试与恢复验证平台</p>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <h3 id="scenarios-count">-</h3>
+        <p>场景模板</p>
+    </div>
+    <div class="stat-card">
+        <h3 id="runs-count">-</h3>
+        <p>执行记录</p>
+    </div>
+    <div class="stat-card">
+        <h3 id="passed-count">-</h3>
+        <p>测试通过</p>
+    </div>
+    <div class="stat-card">
+        <h3 id="failed-count">-</h3>
+        <p>测试失败</p>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2>快速操作</h2>
+    </div>
+    <div class="card-body">
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <a href="/scenarios" class="btn btn-primary">管理场景</a>
+            <a href="/runs" class="btn btn-primary">查看执行</a>
+            <a href="/reports" class="btn btn-primary">查看报告</a>
+            <a href="/api/docs" target="_blank" class="btn btn-secondary">API文档</a>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2>最近执行</h2>
+        <a href="/runs" class="btn btn-sm btn-primary">查看全部</a>
+    </div>
+    <div class="card-body">
+        <p class="empty-state">加载中...</p>
+    </div>
+</div>
+{% endblock %}

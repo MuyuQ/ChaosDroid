@@ -1,0 +1,304 @@
+{% extends "base.html" %}
+
+{% block title %}{{ scenario.name }} - 场景详情 - ChaosDroid{% endblock %}
+
+{% block content %}
+<!-- 详情头部 -->
+<div class="detail-header">
+    <h1 class="detail-title">{{ scenario.name }}</h1>
+    <div class="detail-actions">
+        <a href="/scenarios/{{ scenario.id }}/edit" class="btn btn-primary" hx-boost="true">
+            编辑
+        </a>
+        <button class="btn btn-secondary"
+                hx-post="/api/scenarios/{{ scenario.id }}/clone"
+                hx-target="#flash-messages"
+                hx-swap="innerHTML"
+                hx-confirm="确定要克隆此场景吗？">
+            克隆
+        </button>
+        <button class="btn btn-danger"
+                hx-delete="/api/scenarios/{{ scenario.id }}"
+                hx-target="#flash-messages"
+                hx-swap="innerHTML"
+                hx-confirm="确定要删除此场景吗？此操作不可撤销。"
+                hx-redirect="/scenarios">
+            删除
+        </button>
+    </div>
+</div>
+
+<!-- 基本信息 -->
+<div class="card">
+    <div class="card-header">基本信息</div>
+    <div class="property-list">
+        <div class="property-item">
+            <span class="property-label">描述</span>
+            <span class="property-value">{{ scenario.description or '无描述' }}</span>
+        </div>
+        <div class="property-item">
+            <span class="property-label">目标类型</span>
+            <span class="property-value">
+                {% if scenario.target_type == 'upgrade' %}
+                    <span class="badge badge-info">升级链路</span>
+                {% elif scenario.target_type == 'stability' %}
+                    <span class="badge badge-success">稳定性测试</span>
+                {% elif scenario.target_type == 'monkey' %}
+                    <span class="badge badge-warning">Monkey压测</span>
+                {% elif scenario.target_type == 'recovery' %}
+                    <span class="badge badge-secondary">恢复验证</span>
+                {% else %}
+                    <span class="badge badge-secondary">{{ scenario.target_type }}</span>
+                {% endif %}
+            </span>
+        </div>
+        <div class="property-item">
+            <span class="property-label">注入阶段</span>
+            <span class="property-value">
+                {% if scenario.inject_stage == 'precheck' %}
+                    前置检查
+                {% elif scenario.inject_stage == 'prepare' %}
+                    准备阶段
+                {% elif scenario.inject_stage == 'upgrading' %}
+                    升级进行中
+                {% elif scenario.inject_stage == 'reboot_wait' %}
+                    重启等待
+                {% elif scenario.inject_stage == 'post_boot' %}
+                    启动后
+                {% elif scenario.inject_stage == 'post_validate' %}
+                    验证后
+                {% else %}
+                    {{ scenario.inject_stage }}
+                {% endif %}
+            </span>
+        </div>
+        <div class="property-item">
+            <span class="property-label">执行器模式</span>
+            <span class="property-value">
+                {% if scenario.executor_mode == 'real' %}
+                    <span class="badge badge-info">真实设备</span>
+                {% elif scenario.executor_mode == 'mock' %}
+                    <span class="badge badge-secondary">模拟设备</span>
+                {% else %}
+                    {{ scenario.executor_mode }}
+                {% endif %}
+            </span>
+        </div>
+        <div class="property-item">
+            <span class="property-label">状态</span>
+            <span class="property-value">
+                {% if scenario.enabled %}
+                    <span class="badge badge-success">已启用</span>
+                {% else %}
+                    <span class="badge badge-secondary">已禁用</span>
+                {% endif %}
+            </span>
+        </div>
+        <div class="property-item">
+            <span class="property-label">创建时间</span>
+            <span class="property-value">{{ scenario.created_at.strftime('%Y-%m-%d %H:%M:%S') if scenario.created_at else '未知' }}</span>
+        </div>
+        <div class="property-item">
+            <span class="property-label">更新时间</span>
+            <span class="property-value">{{ scenario.updated_at.strftime('%Y-%m-%d %H:%M:%S') if scenario.updated_at else '未知' }}</span>
+        </div>
+    </div>
+</div>
+
+<!-- 关联配置 -->
+<div class="card">
+    <div class="card-header">关联配置</div>
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;">
+        <!-- 故障配置 -->
+        <div class="card" style="margin-bottom: 0;">
+            <div style="font-weight: 600; margin-bottom: 0.5rem;">故障配置</div>
+            {% if scenario.fault_profile %}
+            <div class="property-list" style="grid-template-columns: 1fr;">
+                <div class="property-item">
+                    <span class="property-label">配置名称</span>
+                    <span class="property-value">{{ scenario.fault_profile.name }}</span>
+                </div>
+                <div class="property-item">
+                    <span class="property-label">故障类型</span>
+                    <span class="property-value">
+                        {% set fault_type = scenario.fault_profile.fault_type %}
+                        {% if fault_type == 'storage_pressure' %}
+                            存储压力
+                        {% elif fault_type == 'low_battery' %}
+                            低电量
+                        {% elif fault_type == 'network_jitter' %}
+                            网络波动
+                        {% elif fault_type == 'reboot_timeout' %}
+                            重启超时
+                        {% elif fault_type == 'cpu_io_stress' %}
+                            CPU/I/O压力
+                        {% elif fault_type == 'monkey_stability' %}
+                            Monkey稳定性
+                        {% else %}
+                            {{ fault_type }}
+                        {% endif %}
+                    </span>
+                </div>
+                <div class="property-item">
+                    <span class="property-label">风险等级</span>
+                    <span class="property-value">
+                        {% set risk_level = scenario.fault_profile.risk_level %}
+                        {% if risk_level == 'low' %}
+                            <span class="badge badge-success">低风险</span>
+                        {% elif risk_level == 'medium' %}
+                            <span class="badge badge-warning">中风险</span>
+                        {% elif risk_level == 'high' %}
+                            <span class="badge badge-danger">高风险</span>
+                        {% elif risk_level == 'critical' %}
+                            <span class="badge badge-danger">严重风险</span>
+                        {% else %}
+                            {{ risk_level }}
+                        {% endif %}
+                    </span>
+                </div>
+            </div>
+            {% else %}
+            <p style="color: var(--text-muted);">未关联故障配置</p>
+            {% endif %}
+        </div>
+
+        <!-- 验证配置 -->
+        <div class="card" style="margin-bottom: 0;">
+            <div style="font-weight: 600; margin-bottom: 0.5rem;">验证配置</div>
+            {% if scenario.validation_profile %}
+            <div class="property-list" style="grid-template-columns: 1fr;">
+                <div class="property-item">
+                    <span class="property-label">配置名称</span>
+                    <span class="property-value">{{ scenario.validation_profile.name }}</span>
+                </div>
+                <div class="property-item">
+                    <span class="property-label">超时时间</span>
+                    <span class="property-value">{{ scenario.validation_profile.timeout_sec }}秒</span>
+                </div>
+            </div>
+            {% else %}
+            <p style="color: var(--text-muted);">未关联验证配置</p>
+            {% endif %}
+        </div>
+
+        <!-- 恢复配置 -->
+        <div class="card" style="margin-bottom: 0;">
+            <div style="font-weight: 600; margin-bottom: 0.5rem;">恢复配置</div>
+            {% if scenario.recovery_profile %}
+            <div class="property-list" style="grid-template-columns: 1fr;">
+                <div class="property-item">
+                    <span class="property-label">配置名称</span>
+                    <span class="property-value">{{ scenario.recovery_profile.name }}</span>
+                </div>
+                <div class="property-item">
+                    <span class="property-label">超时时间</span>
+                    <span class="property-value">{{ scenario.recovery_profile.timeout_sec }}秒</span>
+                </div>
+                <div class="property-item">
+                    <span class="property-label">允许人工介入</span>
+                    <span class="property-value">
+                        {% if scenario.recovery_profile.manual_intervention_allowed %}
+                            是
+                        {% else %}
+                            否
+                        {% endif %}
+                    </span>
+                </div>
+            </div>
+            {% else %}
+            <p style="color: var(--text-muted);">未关联恢复配置</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- 最近执行记录 -->
+<div class="card">
+    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <span>最近执行记录</span>
+        <button class="btn btn-primary"
+                hx-post="/api/runs"
+                hx-vals='{"scenario_template_id": {{ scenario.id }}}'
+                hx-target="#flash-messages"
+                hx-swap="innerHTML"
+                hx-redirect="/runs">
+            创建执行
+        </button>
+    </div>
+
+    <div id="recent-runs">
+        {% if recent_runs and recent_runs|length > 0 %}
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>设备</th>
+                    <th>状态</th>
+                    <th>开始时间</th>
+                    <th>持续时间</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for run in recent_runs %}
+                <tr>
+                    <td>{{ run.id }}</td>
+                    <td>{{ run.device_serial }}</td>
+                    <td>
+                        {% set status = run.status %}
+                        <span class="badge badge-{{ status }}">
+                            {% if status == 'queued' %}
+                                排队中
+                            {% elif status == 'preparing' %}
+                                准备中
+                            {% elif status == 'injecting' %}
+                                注入中
+                            {% elif status == 'validating' %}
+                                验证中
+                            {% elif status == 'recovering' %}
+                                恢复中
+                            {% elif status == 'passed' %}
+                                通过
+                            {% elif status == 'failed' %}
+                                失败
+                            {% elif status == 'partial' %}
+                                部分通过
+                            {% else %}
+                                {{ status }}
+                            {% endif %}
+                        </span>
+                    </td>
+                    <td>{{ run.started_at.strftime('%Y-%m-%d %H:%M:%S') if run.started_at else '未开始' }}</td>
+                    <td>
+                        {% if run.started_at and run.finished_at %}
+                            {% set duration = (run.finished_at - run.started_at).total_seconds() %}
+                            {% if duration < 60 %}
+                                {{ duration|int }}秒
+                            {% elif duration < 3600 %}
+                                {{ (duration / 60)|int }}分钟
+                            {% else %}
+                                {{ (duration / 3600)|int }}小时{{ ((duration % 3600) / 60)|int }}分钟
+                            {% endif %}
+                        {% elif run.started_at %}
+                            运行中...
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="/runs/{{ run.id }}" class="btn btn-secondary btn-sm" hx-boost="true">
+                            查看
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <p>暂无执行记录</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -1,13 +1,20 @@
 """恢复服务模块.
 
-提供故障注入后的恢复操作实现。
+提供故障注入后的恢复操作实现，包括清理注入和设备恢复验证。
 """
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from chaosdroid.config.settings import get_settings
 from chaosdroid.executors.base import BaseDeviceExecutor
+from chaosdroid.injectors.base import BaseInjector, InjectContext
+from chaosdroid.models.base import StepStatus, StepType
+from chaosdroid.models.database import get_session_context
+from chaosdroid.models.scenario import ScenarioStep
+from chaosdroid.observers.collector import ArtifactCollector
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +36,19 @@ class RecoveryStepResult:
     success: bool
     message: str = ""
     details: Dict[str, Any] = field(default_factory=dict)
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典格式"""
+        return {
+            "step_name": self.step_name,
+            "success": self.success,
+            "message": self.message,
+            "details": self.details,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
+        }
 
 
 @dataclass
@@ -38,6 +58,23 @@ class RecoveryResult:
     steps: List[RecoveryStepResult] = field(default_factory=list)
     message: str = ""
     manual_action_required: bool = False
+    cleanup_success: bool = True
+    verification_success: bool = True
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典格式"""
+        return {
+            "passed": self.passed,
+            "message": self.message,
+            "manual_action_required": self.manual_action_required,
+            "cleanup_success": self.cleanup_success,
+            "verification_success": self.verification_success,
+            "steps": [s.to_dict() for s in self.steps],
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
+        }
 
 
 class RecoveryService:
@@ -103,7 +140,7 @@ class RecoveryService:
         self,
         executor: BaseDeviceExecutor,
         context: Dict[str, Any]
-    ) -> RecoveryResult:
+    ) -> Dict[str, Any]:
         """执行恢复步骤.
 
         Args:
@@ -111,23 +148,22 @@ class RecoveryService:
             context: 执行上下文
 
         Returns:
-            RecoveryResult: 恢复操作结果
+            Dict[str, Any]: 恢复操作结果（字典格式）
         """
-        logger.info(f"开始执行恢复步骤，共{len(self.steps)}步")
+        started_at = datetime.utcnow()
+        scenario_run_id = context.get("scenario_run_id", 0)
 
-        result = RecoveryResult(passed=True)
+        logger.info(f"开始执行恢复步骤，共{len(self.steps)}步 run_id={scenario_run_id}")
+
+        result = RecoveryResult(passed=True, started_at=started_at)
         injector = context.get("injector")
 
         try:
             # 1. 首先执行注入器清理
-            if injector:
-                cleanup_success = await injector.cleanup(context)
-                result.steps.append(RecoveryStepResult(
-                    step_name="injector_cleanup",
-                    success=cleanup_success,
-                    message=cleanup_success and "注入器清理成功" or "注入器清理失败"
-                ))
-                logger.info(f"注入器清理: {'成功' if cleanup_success else '失败'}")
+            cleanup_result = await self.cleanup_injection(executor, context)
+            result.steps.append(cleanup_result)
+            result.cleanup_success = cleanup_result.success
+            logger.info(f"注入器清理: {'成功' if cleanup_result.success else '失败'}")
 
             # 2. 执行配置的恢复步骤
             for step in self.steps:
@@ -136,11 +172,11 @@ class RecoveryService:
 
                 if not step_result.success and step.required:
                     logger.warning(f"恢复步骤 {step.name} 失败")
-                    # 必要步骤失败时继续尝试后续步骤
 
             # 3. 最终验证
-            final_check = await self._final_verification(executor, context)
-            result.steps.append(final_check)
+            verification_result = await self.verify_recovery(executor)
+            result.steps.append(verification_result)
+            result.verification_success = verification_result.success
 
             # 判断整体结果
             failed_required_steps = [
@@ -148,8 +184,9 @@ class RecoveryService:
                 if not s.success
             ]
 
-            result.passed = len(failed_required_steps) == 0 and final_check.success
+            result.passed = result.cleanup_success and result.verification_success
             result.message = result.passed and "恢复成功" or "恢复部分失败"
+            result.finished_at = datetime.utcnow()
 
             # 判断是否需要人工介入
             if not result.passed:
@@ -157,14 +194,199 @@ class RecoveryService:
                     "manual_intervention_allowed", True
                 )
 
+            # 记录步骤到数据库
+            await self._record_recovery_step(scenario_run_id, result)
+
         except Exception as e:
             result.passed = False
             result.message = f"恢复过程异常: {str(e)}"
             result.manual_action_required = True
+            result.finished_at = datetime.utcnow()
             logger.exception("恢复过程异常")
 
         logger.info(f"恢复完成: {result.message}")
+        return result.to_dict()
+
+    async def cleanup_injection(
+        self,
+        executor: BaseDeviceExecutor,
+        context: Dict[str, Any],
+    ) -> RecoveryStepResult:
+        """清理注入效果.
+
+        调用注入器的cleanup方法清理注入产生的效果。
+
+        Args:
+            executor: 设备执行器
+            context: 执行上下文
+
+        Returns:
+            RecoveryStepResult: 清理结果
+        """
+        started_at = datetime.utcnow()
+        injector = context.get("injector")
+        inject_result = context.get("inject_result", {})
+        cleanup_required = inject_result.get("cleanup_required", True)
+
+        logger.info("开始清理注入")
+
+        result = RecoveryStepResult(
+            step_name="cleanup_injection",
+            success=True,
+            started_at=started_at,
+            finished_at=datetime.utcnow(),
+        )
+
+        # 如果不需要清理，直接返回成功
+        if not cleanup_required:
+            result.message = "无需清理"
+            return result
+
+        # 如果没有注入器，直接返回成功
+        if injector is None:
+            result.message = "没有注入器，跳过清理"
+            return result
+
+        try:
+            # 构建注入上下文用于清理
+            inject_context = InjectContext(
+                scenario_run_id=context.get("scenario_run_id", 0),
+                device_serial=context.get("device_serial", ""),
+                executor=executor,
+                fault_profile=context.get("fault_profile", {}),
+                artifacts_dir=context.get("artifacts_dir", ""),
+                inject_stage=context.get("inject_stage", "precheck"),
+            )
+
+            # 执行清理
+            cleanup_success = await injector.cleanup(inject_context)
+            result.success = cleanup_success
+            result.message = cleanup_success and "清理成功" or "清理失败"
+            result.finished_at = datetime.utcnow()
+
+        except Exception as e:
+            logger.exception("清理注入异常")
+            result.success = False
+            result.message = f"清理异常: {str(e)}"
+            result.details["error"] = str(e)
+            result.finished_at = datetime.utcnow()
+
         return result
+
+    async def verify_recovery(
+        self,
+        executor: BaseDeviceExecutor,
+    ) -> RecoveryStepResult:
+        """验证恢复结果.
+
+        检查设备是否恢复正常状态。
+
+        Args:
+            executor: 设备执行器
+
+        Returns:
+            RecoveryStepResult: 验证结果
+        """
+        started_at = datetime.utcnow()
+        logger.info("开始验证恢复")
+
+        result = RecoveryStepResult(
+            step_name="verify_recovery",
+            success=False,
+            started_at=started_at,
+        )
+
+        try:
+            # 检查设备在线
+            online = await executor.is_online()
+            if not online:
+                result.message = "设备离线"
+                result.details["online"] = False
+                result.details["reason"] = "device_offline"
+                result.finished_at = datetime.utcnow()
+                return result
+
+            # 检查boot完成
+            boot_completed = await executor.check_boot_completed()
+            if not boot_completed:
+                result.message = "设备启动未完成"
+                result.details["online"] = True
+                result.details["boot_completed"] = False
+                result.details["reason"] = "boot_not_completed"
+                result.finished_at = datetime.utcnow()
+                return result
+
+            # 检查存储空间
+            storage_info = await executor.get_storage_info()
+            available_mb = storage_info.available // (1024 * 1024)
+
+            # 检查电量
+            battery_info = await executor.get_battery_info()
+            battery_level = battery_info.level
+
+            # 判断恢复是否成功
+            recovery_ok = (
+                online
+                and boot_completed
+                and available_mb > 50  # 至少50MB可用空间
+            )
+
+            result.success = recovery_ok
+            result.message = recovery_ok and "恢复验证通过" or "恢复验证失败"
+            result.details = {
+                "online": online,
+                "boot_completed": boot_completed,
+                "storage_available_mb": available_mb,
+                "battery_level": battery_level,
+            }
+            result.finished_at = datetime.utcnow()
+
+        except Exception as e:
+            logger.exception("恢复验证异常")
+            result.success = False
+            result.message = f"验证异常: {str(e)}"
+            result.details["error"] = str(e)
+            result.finished_at = datetime.utcnow()
+
+        return result
+
+    async def _record_recovery_step(
+        self,
+        scenario_run_id: int,
+        result: RecoveryResult,
+    ) -> None:
+        """记录恢复步骤到数据库."""
+        try:
+            async with get_session_context() as session:
+                from sqlalchemy import select
+
+                db_result = await session.execute(
+                    select(ScenarioStep)
+                    .where(ScenarioStep.scenario_run_id == scenario_run_id)
+                    .order_by(ScenarioStep.step_order.desc())
+                    .limit(1)
+                )
+                last_step = db_result.scalar_one_or_none()
+                next_order = (last_step and last_step.step_order or 0) + 1
+
+                # 创建步骤记录
+                step_status = StepStatus.SUCCESS if result.passed else StepStatus.FAILED
+                step = ScenarioStep(
+                    scenario_run_id=scenario_run_id,
+                    step_type=StepType.RECOVER.value,
+                    step_order=next_order,
+                    status=step_status.value,
+                    started_at=result.started_at,
+                    finished_at=result.finished_at,
+                    summary_json=json.dumps(result.to_dict(), ensure_ascii=False),
+                )
+                session.add(step)
+                await session.commit()
+
+                logger.debug(f"记录恢复步骤: {result.passed and '成功' or '失败'}")
+
+        except Exception as e:
+            logger.exception(f"记录恢复步骤失败: {str(e)}")
 
     async def _execute_single_step(
         self,
@@ -182,11 +404,13 @@ class RecoveryService:
         Returns:
             RecoveryStepResult: 步骤执行结果
         """
+        started_at = datetime.utcnow()
         logger.info(f"执行恢复步骤: {step.name} ({step.action})")
 
         result = RecoveryStepResult(
             step_name=step.name,
-            success=False
+            success=False,
+            started_at=started_at,
         )
 
         try:
@@ -254,6 +478,7 @@ class RecoveryService:
             "params": step.params,
             "timeout_sec": step.timeout_sec,
         }
+        result.finished_at = datetime.utcnow()
 
         return result
 
@@ -359,41 +584,6 @@ class RecoveryService:
         """最终验证.
 
         检查设备是否恢复到可用状态。
+        此方法为内部调用，使用verify_recovery作为公共接口。
         """
-        result = RecoveryStepResult(
-            step_name="final_verification",
-            success=False
-        )
-
-        try:
-            # 检查设备在线
-            online = await executor.is_online()
-            if not online:
-                result.message = "设备离线"
-                return result
-
-            # 检查boot完成
-            boot_completed = await executor.check_boot_completed()
-            if not boot_completed:
-                result.message = "Boot未完成"
-                return result
-
-            # 检查电池
-            battery_info = await executor.get_battery_info()
-            if battery_info.level < 10:
-                result.message = f"电量过低({battery_info.level}%)"
-                return result
-
-            # 检查存储
-            storage_info = await executor.get_storage_info()
-            if storage_info.available < 50 * 1024 * 1024:  # 50MB
-                result.message = "存储空间不足"
-                return result
-
-            result.success = True
-            result.message = "设备状态正常"
-
-        except Exception as e:
-            result.message = f"验证异常: {str(e)}"
-
-        return result
+        return await self.verify_recovery(executor)

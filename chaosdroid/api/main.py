@@ -1,20 +1,23 @@
 """API main application."""
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from chaosdroid.api.routes import scenarios, runs, reports, devices
-from chaosdroid.config.settings import settings
-from chaosdroid.models.database import init_db
+from chaosdroid.api.routes import scenarios, runs, reports, devices, web
+from chaosdroid.config.settings import get_settings
+from chaosdroid.models.database import init_engine, create_tables
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     # 启动时初始化数据库
-    await init_db()
+    settings = get_settings()
+    init_engine(settings.database_path)
+    await create_tables()
     yield
     # 关闭时清理资源
 
@@ -34,9 +37,13 @@ def create_app() -> FastAPI:
     app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
     app.include_router(devices.router, prefix="/api/devices", tags=["devices"])
 
-    # 模板和静态文件
-    # templates = Jinja2Templates(directory="chaosdroid/api/templates")
-    # app.mount("/static", StaticFiles(directory="chaosdroid/api/static"), name="static")
+    # 注册Web页面路由
+    app.include_router(web.router, tags=["web"])
+
+    # 静态文件
+    static_dir = Path("chaosdroid/api/static")
+    if static_dir.exists():
+        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
     return app
 

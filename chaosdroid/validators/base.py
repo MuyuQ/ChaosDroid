@@ -12,8 +12,8 @@ class ValidationContext:
     device_serial: str
     executor: Any  # BaseDeviceExecutor
     validation_profile: Dict[str, Any]
-    inject_result: Optional[Dict[str, Any]] = None
     artifacts_dir: str
+    inject_result: Optional[Dict[str, Any]] = None
     started_at: datetime = field(default_factory=datetime.utcnow)
 
 

@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+
+{% block title %}执行详情 #{{ run.id }} - ChaosDroid{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>执行详情 #{{ run.id }}</h1>
+    <div style="margin-top: 10px;">
+        {% if run.status == 'passed' %}
+        <span class="badge badge-success">通过</span>
+        {% elif run.status == 'failed' %}
+        <span class="badge badge-danger">失败</span>
+        {% elif run.status == 'partial' %}
+        <span class="badge badge-warning">部分通过</span>
+        {% else %}
+        <span class="badge badge-info">{{ run.status }}</span>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2>基本信息</h2>
+    </div>
+    <div class="card-body">
+        <table class="table">
+            <tr>
+                <th width="200">执行ID</th>
+                <td>{{ run.id }}</td>
+            </tr>
+            <tr>
+                <th>场景</th>
+                <td>
+                    {% if run.scenario_template %}
+                    <a href="/scenarios/{{ run.scenario_template.id }}">{{ run.scenario_template.name }}</a>
+                    {% else %}
+                    -
+                    {% endif %}
+                </td>
+            </tr>
+            <tr>
+                <th>设备序列号</th>
+                <td>{{ run.device_serial }}</td>
+            </tr>
+            <tr>
+                <th>注入阶段</th>
+                <td>{{ run.inject_stage }}</td>
+            </tr>
+            <tr>
+                <th>开始时间</th>
+                <td>{{ run.started_at or '-' }}</td>
+            </tr>
+            <tr>
+                <th>结束时间</th>
+                <td>{{ run.finished_at or '-' }}</td>
+            </tr>
+            <tr>
+                <th>执行状态</th>
+                <td>{{ run.status }}</td>
+            </tr>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2>执行步骤</h2>
+    </div>
+    <div class="card-body">
+        {% if steps %}
+        <div class="timeline">
+            {% for step in steps %}
+            <div class="timeline-item {{ 'success' if step.status == 'success' else 'failed' if step.status == 'failed' else 'running' }}">
+                <h4>{{ step.step_type }}</h4>
+                <p>
+                    <small>
+                        {% if step.status == 'success' %}
+                        <span class="badge badge-success">成功</span>
+                        {% elif step.status == 'failed' %}
+                        <span class="badge badge-danger">失败</span>
+                        {% else %}
+                        <span class="badge badge-secondary">{{ step.status }}</span>
+                        {% endif %}
+                        &nbsp;{{ step.started_at or '-' }} → {{ step.finished_at or '-' }}
+                    </small>
+                </p>
+                {% if step.summary_json %}
+                <details>
+                    <summary>详细信息</summary>
+                    <pre style="background: #f5f5f5; padding: 10px; overflow-x: auto;">{{ step.summary_json }}</pre>
+                </details>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="empty-state">暂无执行步骤</p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2>操作</h2>
+    </div>
+    <div class="card-body">
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            {% if run.status in ['passed', 'failed', 'partial'] %}
+            <a href="/reports?run_id={{ run.id }}" class="btn btn-primary">查看报告</a>
+            {% endif %}
+            {% if run.status == 'queued' %}
+            <button class="btn btn-danger"
+                    hx-delete="/api/runs/{{ run.id }}"
+                    hx-confirm="确定要取消此执行吗？">
+                取消执行
+            </button>
+            {% endif %}
+            <button class="btn btn-success"
+                    hx-post="/api/runs/{{ run.id }}/execute"
+                    hx-confirm="确定要重新执行吗？">
+                重新执行
+            </button>
+            <a href="/runs" class="btn btn-secondary">返回列表</a>
+        </div>
+    </div>
+</div>
+{% endblock %}

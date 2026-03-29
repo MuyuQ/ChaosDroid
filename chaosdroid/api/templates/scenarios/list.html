@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+
+{% block title %}场景列表 - ChaosDroid{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <span>场景列表</span>
+        <a href="/scenarios/create" class="btn btn-primary" hx-boost="true">
+            新建场景
+        </a>
+    </div>
+
+    <!-- 场景列表表格 -->
+    <div id="scenarios-table">
+        {% if scenarios and scenarios|length > 0 %}
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>名称</th>
+                    <th>目标类型</th>
+                    <th>故障类型</th>
+                    <th>状态</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for scenario in scenarios %}
+                <tr id="scenario-row-{{ scenario.id }}">
+                    <td>
+                        <a href="/scenarios/{{ scenario.id }}" hx-boost="true">
+                            {{ scenario.name }}
+                        </a>
+                    </td>
+                    <td>
+                        {% if scenario.target_type == 'upgrade' %}
+                            <span class="badge badge-info">升级链路</span>
+                        {% elif scenario.target_type == 'stability' %}
+                            <span class="badge badge-success">稳定性测试</span>
+                        {% elif scenario.target_type == 'monkey' %}
+                            <span class="badge badge-warning">Monkey压测</span>
+                        {% elif scenario.target_type == 'recovery' %}
+                            <span class="badge badge-secondary">恢复验证</span>
+                        {% else %}
+                            <span class="badge badge-secondary">{{ scenario.target_type }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if scenario.fault_profile %}
+                            {% set fault_type = scenario.fault_profile.fault_type %}
+                            {% if fault_type == 'storage_pressure' %}
+                                存储压力
+                            {% elif fault_type == 'low_battery' %}
+                                低电量
+                            {% elif fault_type == 'network_jitter' %}
+                                网络波动
+                            {% elif fault_type == 'reboot_timeout' %}
+                                重启超时
+                            {% elif fault_type == 'cpu_io_stress' %}
+                                CPU/I/O压力
+                            {% elif fault_type == 'monkey_stability' %}
+                                Monkey稳定性
+                            {% else %}
+                                {{ fault_type }}
+                            {% endif %}
+                        {% else %}
+                            未配置
+                        {% endif %}
+                    </td>
+                    <td>
+                        <label class="toggle-switch">
+                            <input type="checkbox"
+                                   {% if scenario.enabled %}checked{% endif %}
+                                   hx-post="/api/scenarios/{{ scenario.id }}/toggle"
+                                   hx-trigger="change"
+                                   hx-target="#flash-messages"
+                                   hx-swap="innerHTML">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </td>
+                    <td>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <a href="/scenarios/{{ scenario.id }}/edit"
+                               class="btn btn-secondary btn-sm"
+                               hx-boost="true">
+                                编辑
+                            </a>
+                            <button class="btn btn-secondary btn-sm"
+                                    hx-post="/api/scenarios/{{ scenario.id }}/clone"
+                                    hx-target="#flash-messages"
+                                    hx-swap="innerHTML"
+                                    hx-confirm="确定要克隆此场景吗？">
+                                克隆
+                            </button>
+                            <button class="btn btn-danger btn-sm"
+                                    hx-delete="/api/scenarios/{{ scenario.id }}"
+                                    hx-target="#scenario-row-{{ scenario.id }}"
+                                    hx-swap="outerHTML swap:0.5s"
+                                    hx-confirm="确定要删除此场景吗？此操作不可撤销。">
+                                删除
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-state-icon">📋</div>
+            <p>暂无场景，点击上方按钮新建场景</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
