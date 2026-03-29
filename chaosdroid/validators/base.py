@@ -43,6 +43,7 @@ class ValidationResult:
 
     def get_summary(self) -> Dict[str, Any]:
         """获取摘要"""
+        from dataclasses import asdict
         passed_count = sum(1 for c in self.checks if c.passed)
         return {
             "passed": self.passed,
@@ -50,7 +51,7 @@ class ValidationResult:
             "total_checks": len(self.checks),
             "passed_checks": passed_count,
             "failed_checks": len(self.checks) - passed_count,
-            "checks": [c.model_dump() for c in self.checks]
+            "checks": [asdict(c) for c in self.checks]
         }
 
 
@@ -192,7 +193,7 @@ class JudgmentResult:
     recovery_passed: bool
     risk_level: str
     manual_action_required: bool
-    final_status: str  # passed/failed/partial
+    final_status: str = ""  # passed/failed/partial
     message: str = ""
 
     def determine_final_status(self) -> str:

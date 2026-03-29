@@ -4,7 +4,7 @@
 测试MockDeviceExecutor和MockDeviceState。
 """
 import asyncio
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -1223,7 +1223,7 @@ class TestRealDeviceExecutorEdgeCases:
         result = await real_executor.execute_shell("long_running_command", timeout=30)
 
         assert result.success is False
-        assert "timeout" in result.stderr.lower()
+        assert "timed out" in result.stderr.lower()
 
     async def test_adb_not_found(self, real_executor):
         """测试ADB未找到。"""

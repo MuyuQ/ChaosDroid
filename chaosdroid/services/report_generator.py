@@ -150,6 +150,7 @@ class ReportGenerator:
     def generate_html(self, markdown_content: str) -> str:
         """生成HTML报告（简单转换）"""
         # 简单的HTML包装，实际可使用markdown库
+        # 注意：CSS中的大括号需要双写以避免与format()冲突
         html_template = """<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -157,46 +158,46 @@ class ReportGenerator:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ChaosDroid 测试报告</title>
     <style>
-        body {
+        body {{
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             max-width: 800px;
             margin: 0 auto;
             padding: 20px;
             background: #f5f5f5;
-        }
-        .report-container {
+        }}
+        .report-container {{
             background: white;
             padding: 30px;
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        h1 {
+        }}
+        h1 {{
             color: #333;
             border-bottom: 2px solid #4CAF50;
             padding-bottom: 10px;
-        }
-        h2 {
+        }}
+        h2 {{
             color: #444;
             margin-top: 20px;
-        }
-        table {
+        }}
+        table {{
             width: 100%;
             border-collapse: collapse;
             margin: 10px 0;
-        }
-        th, td {
+        }}
+        th, td {{
             border: 1px solid #ddd;
             padding: 8px;
             text-align: left;
-        }
-        th {
+        }}
+        th {{
             background: #f9f9f9;
-        }
-        .status-passed { color: #4CAF50; font-weight: bold; }
-        .status-failed { color: #f44336; font-weight: bold; }
-        .status-partial { color: #ff9800; font-weight: bold; }
-        ul { line-height: 1.6; }
-        code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; }
+        }}
+        .status-passed {{ color: #4CAF50; font-weight: bold; }}
+        .status-failed {{ color: #f44336; font-weight: bold; }}
+        .status-partial {{ color: #ff9800; font-weight: bold; }}
+        ul {{ line-height: 1.6; }}
+        code {{ background: #f4f4f4; padding: 2px 6px; border-radius: 3px; }}
     </style>
 </head>
 <body>

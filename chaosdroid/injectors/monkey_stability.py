@@ -151,7 +151,7 @@ class MonkeyStabilityInjector(BaseInjector):
         # 查找crash相关的模式
         crash_patterns = [
             r"// CRASH:",
-            r"** Monkey aborted due to crash",
+            r"\*\* Monkey aborted due to crash",
             r"CRASH:\s*\d+"
         ]
         count = 0

@@ -273,7 +273,7 @@ class ExecutionService:
         self, mode: str, device_serial: str, context: Dict[str, Any]
     ) -> BaseDeviceExecutor:
         """设置设备执行器."""
-        if mode == ExecutorMode.MOCK.value:
+        if mode == ExecutorMode.mock.value:
             # Mock模式：根据场景设置mock设备状态
             # 可根据fault_type设置特定的mock场景
             mock_scenario = MockScenario.normal
