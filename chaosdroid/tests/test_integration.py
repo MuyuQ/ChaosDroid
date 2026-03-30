@@ -57,9 +57,10 @@ async def sample_profiles(db_session):
     fault_profile = FaultProfile(
         name="存储压力测试",
         fault_type="storage_pressure",
-        parameters_json=json.dumps({"pressure_mb": 500, "target_path": "/sdcard/test"}),
+        parameters={"pressure_mb": 500, "target_path": "/sdcard/test"},
         safe_cleanup_required=True,
         risk_level="medium",
+        is_active=True,
     )
     db_session.add(fault_profile)
     await db_session.flush()
@@ -304,11 +305,12 @@ class TestRecoveryService:
         executor = MockDeviceExecutor("test_device", MockScenario.normal)
 
         # 执行恢复
-        context = {"injector": None}
+        context = {"injector": None, "scenario_run_id": 1}
         result = await recovery_service.execute_recovery_steps(executor, context)
 
-        assert result.passed
-        assert len(result.steps) > 0
+        # 返回的是字典格式
+        assert result["passed"]
+        assert len(result["steps"]) > 0
 
 
 class TestAPIEndpoints:

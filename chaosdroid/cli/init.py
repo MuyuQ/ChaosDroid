@@ -174,9 +174,11 @@ def _create_sync_database(db_path: str) -> None:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             fault_type TEXT NOT NULL,
-            parameters_json TEXT,
+            parameters JSON,
             safe_cleanup_required INTEGER DEFAULT 0,
             risk_level TEXT DEFAULT 'low',
+            is_active INTEGER DEFAULT 1,
+            description TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );

@@ -7,7 +7,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, InjectStage, RunStatus, StepStatus, StepType, TargetType, ExecutorMode, TimestampMixin
@@ -109,6 +109,11 @@ class ScenarioRun(Base, TimestampMixin):
     """
 
     __tablename__ = "scenario_runs"
+    __table_args__ = (
+        Index("ix_scenario_runs_status", "status"),
+        Index("ix_scenario_runs_scenario_template_id", "scenario_template_id"),
+        Index("ix_scenario_runs_device_serial", "device_serial"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, comment="主键")
     scenario_template_id: Mapped[int | None] = mapped_column(
@@ -191,6 +196,11 @@ class ScenarioStep(Base, TimestampMixin):
     """
 
     __tablename__ = "scenario_steps"
+    __table_args__ = (
+        Index("ix_scenario_steps_scenario_run_id", "scenario_run_id"),
+        Index("ix_scenario_steps_step_type", "step_type"),
+        Index("ix_scenario_steps_status", "status"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, comment="主键")
     scenario_run_id: Mapped[int] = mapped_column(

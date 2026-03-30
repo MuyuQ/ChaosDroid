@@ -60,10 +60,11 @@ def fault_profile_data():
     """故障配置测试数据。"""
     return {
         "name": "存储压力测试",
-        "fault_type": FaultType.STORAGE_PRESSURE.value,
-        "parameters_json": json.dumps({"pressure_mb": 1000, "target_path": "/sdcard/test"}),
+        "fault_type": FaultType.storage_pressure.value,
+        "parameters": {"pressure_mb": 1000, "target_path": "/sdcard/test"},
         "safe_cleanup_required": True,
-        "risk_level": RiskLevel.MEDIUM.value,
+        "risk_level": RiskLevel.medium.value,
+        "is_active": True,
         "description": "测试存储压力注入",
     }
 
@@ -193,11 +194,11 @@ class TestFaultTypeEnum:
 
     def test_storage_pressure(self):
         """测试存储压力故障类型。"""
-        assert FaultType.STORAGE_PRESSURE.value == "storage_pressure"
+        assert FaultType.storage_pressure.value == "storage_pressure"
 
     def test_low_battery(self):
         """测试低电量故障类型。"""
-        assert FaultType.LOW_BATTERY.value == "low_battery"
+        assert FaultType.low_battery.value == "low_battery"
 
 
 class TestRiskLevelEnum:
@@ -211,10 +212,10 @@ class TestRiskLevelEnum:
 
     def test_risk_level_order(self):
         """测试风险等级顺序（从低到高）。"""
-        assert RiskLevel.LOW.value == "low"
-        assert RiskLevel.MEDIUM.value == "medium"
-        assert RiskLevel.HIGH.value == "high"
-        assert RiskLevel.CRITICAL.value == "critical"
+        assert RiskLevel.low.value == "low"
+        assert RiskLevel.medium.value == "medium"
+        assert RiskLevel.high.value == "high"
+        assert RiskLevel.critical.value == "critical"
 
 
 class TestInjectStageEnum:
@@ -279,8 +280,8 @@ class TestFaultProfileCreation:
 
         assert profile.id is not None
         assert profile.name == fault_profile_data["name"]
-        assert profile.fault_type == FaultType.STORAGE_PRESSURE.value
-        assert profile.risk_level == RiskLevel.MEDIUM.value
+        assert profile.fault_type == FaultType.storage_pressure.value
+        assert profile.risk_level == RiskLevel.medium.value
         assert profile.safe_cleanup_required is True
 
     async def test_fault_profile_timestamps(self, db_session, fault_profile_data):
@@ -298,13 +299,13 @@ class TestFaultProfileCreation:
         """测试故障配置默认值。"""
         profile = FaultProfile(
             name="默认配置",
-            fault_type=FaultType.CPU_IO_STRESS.value,
+            fault_type=FaultType.cpu_io_stress.value,
         )
         db_session.add(profile)
         await db_session.flush()
 
         assert profile.safe_cleanup_required is False  # 默认不需要安全清理
-        assert profile.risk_level == RiskLevel.LOW.value  # 默认低风险
+        assert profile.risk_level == RiskLevel.low.value  # 默认低风险
 
 
 class TestValidationProfileCreation:
@@ -567,7 +568,7 @@ class TestModelRelationships:
 class TestJSONFieldHandling:
     """测试 JSON 字段的存储和读取。"""
 
-    async def test_fault_profile_parameters_json(self, db_session):
+    async def test_fault_profile_parameters(self, db_session):
         """测试故障配置参数JSON字段。"""
         params = {
             "pressure_mb": 500,
@@ -576,16 +577,15 @@ class TestJSONFieldHandling:
         }
         profile = FaultProfile(
             name="JSON测试",
-            fault_type=FaultType.STORAGE_PRESSURE.value,
-            parameters_json=json.dumps(params),
+            fault_type=FaultType.storage_pressure.value,
+            parameters=params,
         )
         db_session.add(profile)
         await db_session.flush()
 
-        # 读取并解析JSON
-        loaded_params = json.loads(profile.parameters_json)
-        assert loaded_params["pressure_mb"] == 500
-        assert loaded_params["target_path"] == "/data/local/tmp"
+        # 直接读取JSON字段，无需手动解析
+        assert profile.parameters["pressure_mb"] == 500
+        assert profile.parameters["target_path"] == "/data/local/tmp"
 
     async def test_validation_profile_checks_json(self, db_session):
         """测试验证配置检查项JSON字段。"""
@@ -661,13 +661,13 @@ class TestJSONFieldHandling:
         """测试JSON字段为空值的情况。"""
         profile = FaultProfile(
             name="空JSON测试",
-            fault_type=FaultType.NETWORK_JITTER.value,
-            parameters_json=None,
+            fault_type=FaultType.network_jitter.value,
+            parameters=None,
         )
         db_session.add(profile)
         await db_session.flush()
 
-        assert profile.parameters_json is None
+        assert profile.parameters is None
 
 
 # ==================== 模型字符串表示测试 ====================

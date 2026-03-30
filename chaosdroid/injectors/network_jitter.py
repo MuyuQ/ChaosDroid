@@ -5,39 +5,29 @@ from typing import Dict, Any
 
 from chaosdroid.injectors.base import (
     BaseInjector,
-    FaultType,
-    RiskLevel,
     InjectContext,
     InjectResult
 )
+from chaosdroid.models.base import FaultType, RiskLevel
 
 
 class NetworkJitterInjector(BaseInjector):
     """网络波动注入器
 
     模拟网络波动、超时、恢复等场景。
+    每次注入调用独立，不维护实例状态。
     """
 
     fault_type = FaultType.network_jitter
     risk_level = RiskLevel.medium
-
-    def __init__(self):
-        self.jitter_type: str = "latency"
-        self.latency_ms: int = 500
-        self.timeout_enabled: bool = False
-        self.disconnect_duration_sec: int = 5
 
     async def prepare(self, context: InjectContext) -> bool:
         """准备注入环境"""
         executor = context.executor
         fault_profile = context.fault_profile
 
-        # 获取波动参数
+        # 获取波动参数（每次调用重新获取）
         params = fault_profile.get("parameters", {})
-        self.jitter_type = params.get("jitter_type", "latency")  # latency, timeout, disconnect
-        self.latency_ms = params.get("latency_ms", 500)
-        self.timeout_enabled = params.get("timeout_enabled", False)
-        self.disconnect_duration_sec = params.get("disconnect_duration_sec", 5)
 
         # 检查设备在线
         online = await executor.is_online()
@@ -49,6 +39,14 @@ class NetworkJitterInjector(BaseInjector):
     async def inject(self, context: InjectContext) -> InjectResult:
         """执行网络波动注入"""
         executor = context.executor
+        fault_profile = context.fault_profile
+
+        # 每次调用重新获取参数（不使用实例状态）
+        params = fault_profile.get("parameters", {})
+        jitter_type = params.get("jitter_type", "latency")  # latency, timeout, disconnect
+        latency_ms = params.get("latency_ms", 500)
+        timeout_enabled = params.get("timeout_enabled", False)
+        disconnect_duration_sec = params.get("disconnect_duration_sec", 5)
 
         # 获取当前网络状态
         is_mock = hasattr(executor, 'get_state')
@@ -57,28 +55,28 @@ class NetworkJitterInjector(BaseInjector):
             # Mock模式：修改状态
             state = executor.get_state()
 
-            if self.jitter_type == "disconnect":
+            if jitter_type == "disconnect":
                 state.apply_injection("network_jitter", {"disconnect": True})
-            elif self.jitter_type == "timeout":
+            elif jitter_type == "timeout":
                 state.apply_injection("network_jitter", {"timeout": True})
 
             await asyncio.sleep(random.uniform(0.5, 1.0))
 
             # 模拟波动持续时间
-            if self.jitter_type == "disconnect" and self.disconnect_duration_sec > 0:
-                await asyncio.sleep(min(self.disconnect_duration_sec, 3))
+            if jitter_type == "disconnect" and disconnect_duration_sec > 0:
+                await asyncio.sleep(min(disconnect_duration_sec, 3))
 
             return InjectResult(
                 success=True,
                 fault_type=self.fault_type,
                 fault_injected=True,
                 fault_observed=True,
-                message=f"Mock注入: 网络波动类型={self.jitter_type}",
+                message=f"Mock注入: 网络波动类型={jitter_type}",
                 details={
-                    "jitter_type": self.jitter_type,
-                    "latency_ms": self.latency_ms,
-                    "timeout_enabled": self.timeout_enabled,
-                    "disconnect_duration_sec": self.disconnect_duration_sec
+                    "jitter_type": jitter_type,
+                    "latency_ms": latency_ms,
+                    "timeout_enabled": timeout_enabled,
+                    "disconnect_duration_sec": disconnect_duration_sec
                 },
                 cleanup_required=True
             )
@@ -92,7 +90,7 @@ class NetworkJitterInjector(BaseInjector):
                 fault_observed=True,
                 message=f"真实模式: 网络波动注入已标记",
                 details={
-                    "jitter_type": self.jitter_type,
+                    "jitter_type": jitter_type,
                     "note": "真实模式网络控制需要代理层支持",
                     "real_mode": True
                 },

@@ -418,7 +418,8 @@ class TestGetLogcat:
 
         assert isinstance(logcat, str)
         assert len(logcat) > 0
-        assert "Mock log" in logcat
+        # 验证日志格式包含真实的Android组件
+        assert "ActivityManager" in logcat or "AndroidRuntime" in logcat or "PackageManager" in logcat
 
     async def test_get_logcat_offline(self, mock_executor_offline):
         """测试离线设备获取logcat为空。"""

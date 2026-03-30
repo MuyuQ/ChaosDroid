@@ -7,8 +7,9 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Integer, String, Text
+from sqlalchemy import Boolean, Integer, String, Text, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.dialects.sqlite import JSON
 
 from .base import Base, FaultType, RiskLevel, TimestampMixin
 
@@ -24,6 +25,10 @@ class FaultProfile(Base, TimestampMixin):
     """
 
     __tablename__ = "fault_profiles"
+    __table_args__ = (
+        Index("ix_fault_profiles_fault_type", "fault_type"),
+        Index("ix_fault_profiles_is_active", "is_active"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, comment="主键")
     name: Mapped[str] = mapped_column(String(100), nullable=False, comment="配置名称")
@@ -32,10 +37,10 @@ class FaultProfile(Base, TimestampMixin):
         nullable=False,
         comment="故障类型",
     )
-    parameters_json: Mapped[str | None] = mapped_column(
-        Text,
+    parameters: Mapped[dict | None] = mapped_column(
+        JSON,
         nullable=True,
-        comment="参数JSON，包含故障注入的具体配置",
+        comment="参数配置，包含故障注入的具体配置",
     )
     safe_cleanup_required: Mapped[bool] = mapped_column(
         Boolean,
@@ -45,9 +50,15 @@ class FaultProfile(Base, TimestampMixin):
     )
     risk_level: Mapped[str] = mapped_column(
         String(20),
-        default=RiskLevel.LOW.value,
+        default=RiskLevel.low.value,
         nullable=False,
         comment="风险等级: low/medium/high/critical",
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+        comment="是否启用",
     )
     description: Mapped[str | None] = mapped_column(
         Text,

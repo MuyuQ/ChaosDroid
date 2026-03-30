@@ -6,50 +6,58 @@ from typing import Dict, Any
 
 from chaosdroid.injectors.base import (
     BaseInjector,
-    FaultType,
-    RiskLevel,
     InjectContext,
     InjectResult
 )
+from chaosdroid.models.base import FaultType, RiskLevel
+
+
+def _validate_package_name(package: str) -> bool:
+    """验证包名是否安全，防止命令注入."""
+    # Android包名格式：字母、数字、点、下划线
+    safe_pattern = r'^[a-zA-Z0-9_.]+$'
+    if not re.match(safe_pattern, package):
+        return False
+    # 包名不能太长
+    if len(package) > 256:
+        return False
+    return True
 
 
 class MonkeyStabilityInjector(BaseInjector):
     """Monkey稳定性注入器
 
     启动monkey测试，采集输出统计crash/ANR。
+    每次注入调用独立，不维护实例状态。
     """
 
     fault_type = FaultType.monkey_stability
     risk_level = RiskLevel.medium
-
-    def __init__(self):
-        self.package: str = ""
-        self.event_count: int = 1000
-        self.seed: int = 0
-        self.throttle_ms: int = 50
-        self.options: Dict[str, Any] = {}
 
     async def prepare(self, context: InjectContext) -> bool:
         """准备注入环境"""
         executor = context.executor
         fault_profile = context.fault_profile
 
-        # 获取monkey参数
+        # 获取monkey参数（每次调用重新获取）
         params = fault_profile.get("parameters", {})
-        self.package = params.get("package", "")
-        self.event_count = params.get("event_count", 1000)
-        self.seed = params.get("seed", random.randint(1, 10000))
-        self.throttle_ms = params.get("throttle_ms", 50)
-        self.options = params.get("options", {})
+        package = params.get("package", "")
+        event_count = params.get("event_count", 1000)
+        seed = params.get("seed", random.randint(1, 10000))
+        throttle_ms = params.get("throttle_ms", 50)
+        options = params.get("options", {})
 
         # 检查设备在线
         online = await executor.is_online()
         if not online:
             return False
 
-        # 如果指定了包名，检查包是否存在
-        if self.package:
-            result = await executor.execute_shell(f"pm list packages | grep {self.package}", timeout=30)
+        # 如果指定了包名，验证并检查包是否存在
+        if package:
+            if not _validate_package_name(package):
+                return False
+            # 使用pm list packages检查包是否存在（包名已验证，相对安全）
+            result = await executor.execute_shell(f"pm list packages | grep '{package}'", timeout=30)
             if not result.stdout.strip():
                 return False
 
@@ -58,6 +66,15 @@ class MonkeyStabilityInjector(BaseInjector):
     async def inject(self, context: InjectContext) -> InjectResult:
         """执行Monkey稳定性注入"""
         executor = context.executor
+        fault_profile = context.fault_profile
+
+        # 每次调用重新获取参数（不使用实例状态）
+        params = fault_profile.get("parameters", {})
+        package = params.get("package", "")
+        event_count = params.get("event_count", 1000)
+        seed = params.get("seed", random.randint(1, 10000))
+        throttle_ms = params.get("throttle_ms", 50)
+        options = params.get("options", {})
 
         # 检查是否是Mock设备
         is_mock = hasattr(executor, 'get_state')
@@ -67,11 +84,11 @@ class MonkeyStabilityInjector(BaseInjector):
 
             # 模拟运行monkey
             monkey_result = await executor.run_monkey(
-                self.package or "com.mock.package",
-                self.event_count,
+                package or "com.mock.package",
+                event_count,
                 {
-                    "seed": self.seed,
-                    "throttle": self.throttle_ms
+                    "seed": seed,
+                    "throttle": throttle_ms
                 }
             )
 
@@ -80,8 +97,8 @@ class MonkeyStabilityInjector(BaseInjector):
             anr_count = monkey_result.anr_count
 
             # 判断稳定性（根据配置）
-            max_crashes = self.options.get("max_crashes_allowed", 0)
-            max_anrs = self.options.get("max_anrs_allowed", 0)
+            max_crashes = options.get("max_crashes_allowed", 0)
+            max_anrs = options.get("max_anrs_allowed", 0)
 
             success = crash_count <= max_crashes and anr_count <= max_anrs
 
@@ -92,10 +109,10 @@ class MonkeyStabilityInjector(BaseInjector):
                 fault_observed=True,
                 message=f"Mock注入: Monkey完成，crash={crash_count}, ANR={anr_count}",
                 details={
-                    "package": self.package,
-                    "event_count": self.event_count,
-                    "seed": self.seed,
-                    "throttle_ms": self.throttle_ms,
+                    "package": package,
+                    "event_count": event_count,
+                    "seed": seed,
+                    "throttle_ms": throttle_ms,
                     "crash_count": crash_count,
                     "anr_count": anr_count,
                     "total_events": monkey_result.total_events,
@@ -107,11 +124,11 @@ class MonkeyStabilityInjector(BaseInjector):
         else:
             # Real模式：运行实际monkey
             monkey_result = await executor.run_monkey(
-                self.package,
-                self.event_count,
+                package,
+                event_count,
                 {
-                    "seed": self.seed,
-                    "throttle": self.throttle_ms
+                    "seed": seed,
+                    "throttle": throttle_ms
                 }
             )
 
@@ -120,8 +137,8 @@ class MonkeyStabilityInjector(BaseInjector):
             anr_count = self._parse_anrs(monkey_result.output)
 
             # 判断稳定性
-            max_crashes = self.options.get("max_crashes_allowed", 0)
-            max_anrs = self.options.get("max_anrs_allowed", 0)
+            max_crashes = options.get("max_crashes_allowed", 0)
+            max_anrs = options.get("max_anrs_allowed", 0)
 
             success = crash_count <= max_crashes and anr_count <= max_anrs
 
@@ -132,10 +149,10 @@ class MonkeyStabilityInjector(BaseInjector):
                 fault_observed=True,
                 message=f"真实模式: Monkey完成，crash={crash_count}, ANR={anr_count}",
                 details={
-                    "package": self.package,
-                    "event_count": self.event_count,
-                    "seed": self.seed,
-                    "throttle_ms": self.throttle_ms,
+                    "package": package,
+                    "event_count": event_count,
+                    "seed": seed,
+                    "throttle_ms": throttle_ms,
                     "crash_count": crash_count,
                     "anr_count": anr_count,
                     "total_events": monkey_result.total_events,

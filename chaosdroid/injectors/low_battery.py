@@ -5,34 +5,30 @@ from typing import Dict, Any
 
 from chaosdroid.injectors.base import (
     BaseInjector,
-    FaultType,
-    RiskLevel,
     InjectContext,
     InjectResult
 )
+from chaosdroid.models.base import FaultType, RiskLevel
 
 
 class LowBatteryInjector(BaseInjector):
     """低电量注入器
 
     模拟低电量条件，验证系统在低电量状态下的行为。
+    每次注入调用独立，不维护实例状态。
     """
 
     fault_type = FaultType.low_battery
     risk_level = RiskLevel.low
-
-    def __init__(self):
-        self.original_battery_level: int = 100
-        self.target_level: int = 10
 
     async def prepare(self, context: InjectContext) -> bool:
         """准备注入环境"""
         executor = context.executor
         fault_profile = context.fault_profile
 
-        # 获取目标电量参数
+        # 获取目标电量参数（每次调用重新获取）
         params = fault_profile.get("parameters", {})
-        self.target_level = params.get("target_level", 10)  # 默认10%
+        target_level = params.get("target_level", 10)  # 默认10%
 
         # 检查设备在线
         online = await executor.is_online()
@@ -41,10 +37,10 @@ class LowBatteryInjector(BaseInjector):
 
         # 获取当前电量
         battery_info = await executor.get_battery_info()
-        self.original_battery_level = battery_info.level
+        original_battery_level = battery_info.level
 
         # 检查是否适合注入（电量应该足够高才能模拟下降）
-        if self.original_battery_level <= self.target_level:
+        if original_battery_level <= target_level:
             return True  # 已经是低电量状态
 
         return True
@@ -52,6 +48,11 @@ class LowBatteryInjector(BaseInjector):
     async def inject(self, context: InjectContext) -> InjectResult:
         """执行低电量注入"""
         executor = context.executor
+        fault_profile = context.fault_profile
+
+        # 每次调用重新获取参数（不使用实例状态）
+        params = fault_profile.get("parameters", {})
+        target_level = params.get("target_level", 10)
 
         # 获取当前电池状态
         battery_before = await executor.get_battery_info()
@@ -61,13 +62,13 @@ class LowBatteryInjector(BaseInjector):
         if is_mock:
             # Mock模式：修改状态
             state = executor.get_state()
-            state.apply_injection("low_battery", {"level": self.target_level})
+            state.apply_injection("low_battery", {"level": target_level})
 
             await asyncio.sleep(random.uniform(0.3, 0.8))
 
             battery_after = await executor.get_battery_info()
 
-            success = battery_after.level <= self.target_level
+            success = battery_after.level <= target_level
 
             return InjectResult(
                 success=success,
@@ -76,7 +77,7 @@ class LowBatteryInjector(BaseInjector):
                 fault_observed=True,
                 message=f"Mock注入: 电量从{battery_before.level}%降至{battery_after.level}%",
                 details={
-                    "target_level": self.target_level,
+                    "target_level": target_level,
                     "battery_before": battery_before.level,
                     "battery_after": battery_after.level
                 },
@@ -86,13 +87,13 @@ class LowBatteryInjector(BaseInjector):
             # Real模式：读取真实低电量设备状态
             # 注意：实际设备不能通过软件降低电量，需要使用已处于低电量的设备
             return InjectResult(
-                success=battery_before.level <= self.target_level,
+                success=battery_before.level <= target_level,
                 fault_type=self.fault_type,
-                fault_injected=battery_before.level <= self.target_level,
+                fault_injected=battery_before.level <= target_level,
                 fault_observed=True,
-                message=f"真实模式: 当前电量{battery_before.level}%，目标{self.target_level}%",
+                message=f"真实模式: 当前电量{battery_before.level}%，目标{target_level}%",
                 details={
-                    "target_level": self.target_level,
+                    "target_level": target_level,
                     "battery_before": battery_before.level,
                     "real_mode": True,
                     "note": "真实模式需要使用已处于低电量的设备"

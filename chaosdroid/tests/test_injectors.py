@@ -292,8 +292,7 @@ class TestStoragePressureInjectorPrepare:
         result = await storage_injector.prepare(inject_context)
 
         assert result is True
-        assert storage_injector.pressure_mb == 500
-        assert "target_path" in storage_injector.injected_files
+        # 注入器状态已移到inject()方法的本地变量，不再存储在实例属性中
 
     async def test_prepare_device_offline(self, storage_injector, inject_context_offline):
         """测试设备离线时prepare失败。"""
@@ -321,7 +320,7 @@ class TestStoragePressureInjectorPrepare:
 
         result = await injector.prepare(context)
         assert result is True
-        assert injector.pressure_mb == 2000
+        # 状态已移到inject()方法的本地变量
 
     async def test_prepare_default_pressure_value(self, mock_executor):
         """测试默认压力值（1GB）。"""
@@ -336,7 +335,7 @@ class TestStoragePressureInjectorPrepare:
 
         result = await injector.prepare(context)
         assert result is True
-        assert injector.pressure_mb == 1000  # 默认值
+        # 默认值在inject()中使用，不再存储在实例属性
 
     async def test_prepare_custom_target_path(self, mock_executor):
         """测试自定义目标路径。"""
@@ -345,13 +344,13 @@ class TestStoragePressureInjectorPrepare:
             scenario_run_id=1,
             device_serial="test",
             executor=mock_executor,
-            fault_profile={"parameters": {"target_path": "/custom/path"}},
+            fault_profile={"parameters": {"target_path": "/sdcard/custom"}},
             artifacts_dir="/tmp",
         )
 
         result = await injector.prepare(context)
         assert result is True
-        assert injector.injected_files["target_path"] == "/custom/path"
+        # 目标路径在inject()中使用，不再存储在实例属性
 
 
 class TestStoragePressureInjectorInject:
@@ -457,10 +456,11 @@ class TestStoragePressureInjectorProperties:
         assert "存储" in description or "压力" in description
 
     def test_initial_state(self):
-        """测试注入器初始状态。"""
+        """测试注入器初始状态（无实例属性）。"""
         injector = StoragePressureInjector()
-        assert injector.injected_files == {}
-        assert injector.pressure_mb == 0
+        # 注入器不再维护实例状态，每次inject()独立运行
+        assert hasattr(injector, 'fault_type')
+        assert hasattr(injector, 'risk_level')
 
 
 class TestStoragePressureInjectorMockScenario:
@@ -668,7 +668,7 @@ class TestLowBatteryInjector:
         """测试低电量注入器准备成功。"""
         result = await low_battery_injector.prepare(inject_context_low_battery)
         assert result is True
-        assert low_battery_injector.target_level == 10
+        # 状态已移到inject()方法的本地变量
 
     async def test_prepare_offline_fails(self, low_battery_injector, mock_executor_offline):
         """测试离线设备准备失败。"""
@@ -751,7 +751,7 @@ class TestNetworkJitterInjector:
         """测试网络波动注入器准备成功。"""
         result = await network_injector.prepare(inject_context_network)
         assert result is True
-        assert network_injector.jitter_type == "disconnect"
+        # 状态已移到inject()方法的本地变量
 
     async def test_prepare_offline_fails(self, network_injector, mock_executor_offline):
         """测试离线设备准备失败。"""
@@ -841,7 +841,7 @@ class TestRebootTimeoutInjector:
         """测试重启超时注入器准备成功。"""
         result = await reboot_injector.prepare(inject_context_reboot)
         assert result is True
-        assert reboot_injector.timeout_duration_sec == 60
+        # 状态已移到inject()方法的本地变量
 
     async def test_prepare_offline_fails(self, reboot_injector, mock_executor_offline):
         """测试离线设备准备失败。"""
@@ -927,7 +927,7 @@ class TestCpuIoStressInjector:
         """测试CPU/I/O压力注入器准备成功。"""
         result = await cpu_io_injector.prepare(inject_context_cpu_io)
         assert result is True
-        assert cpu_io_injector.cpu_load_percent == 50
+        # 状态已移到inject()方法的本地变量
 
     async def test_prepare_offline_fails(self, cpu_io_injector, mock_executor_offline):
         """测试离线设备准备失败。"""
@@ -1018,8 +1018,7 @@ class TestMonkeyStabilityInjector:
         """测试Monkey稳定性注入器准备成功。"""
         result = await monkey_injector.prepare(inject_context_monkey)
         assert result is True
-        assert monkey_injector.event_count == 1000
-        assert monkey_injector.seed == 123
+        # 状态已移到inject()方法的本地变量
 
     async def test_prepare_offline_fails(self, monkey_injector, mock_executor_offline):
         """测试离线设备准备失败。"""

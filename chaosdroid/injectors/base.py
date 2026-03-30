@@ -2,26 +2,10 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
 from typing import Dict, Any, Optional
 
-
-class FaultType(str, Enum):
-    """故障类型枚举"""
-    storage_pressure = "storage_pressure"
-    low_battery = "low_battery"
-    network_jitter = "network_jitter"
-    reboot_timeout = "reboot_timeout"
-    cpu_io_stress = "cpu_io_stress"
-    monkey_stability = "monkey_stability"
-
-
-class RiskLevel(str, Enum):
-    """风险等级枚举"""
-    low = "low"
-    medium = "medium"
-    high = "high"
-    critical = "critical"
+# 从 models 模块导入枚举，避免重复定义
+from chaosdroid.models.base import FaultType, RiskLevel
 
 
 @dataclass

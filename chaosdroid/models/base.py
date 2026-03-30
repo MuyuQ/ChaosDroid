@@ -74,12 +74,12 @@ class StepStatus(str, Enum):
 class FaultType(str, Enum):
     """故障类型枚举。"""
 
-    STORAGE_PRESSURE = "storage_pressure"  # 存储压力
-    LOW_BATTERY = "low_battery"  # 低电量
-    NETWORK_JITTER = "network_jitter"  # 网络波动
-    REBOOT_TIMEOUT = "reboot_timeout"  # 重启超时
-    CPU_IO_STRESS = "cpu_io_stress"  # CPU/I/O压力
-    MONKEY_STABILITY = "monkey_stability"  # Monkey稳定性
+    storage_pressure = "storage_pressure"  # 存储压力
+    low_battery = "low_battery"  # 低电量
+    network_jitter = "network_jitter"  # 网络波动
+    reboot_timeout = "reboot_timeout"  # 重启超时
+    cpu_io_stress = "cpu_io_stress"  # CPU/I/O压力
+    monkey_stability = "monkey_stability"  # Monkey稳定性
 
 
 class InjectStage(str, Enum):
@@ -105,10 +105,10 @@ class TargetType(str, Enum):
 class RiskLevel(str, Enum):
     """风险等级枚举。"""
 
-    LOW = "low"  # 不影响关键链路
-    MEDIUM = "medium"  # 影响升级链路
-    HIGH = "high"  # 影响boot或系统可用性
-    CRITICAL = "critical"  # 需要人工介入恢复
+    low = "low"  # 不影响关键链路
+    medium = "medium"  # 影响升级链路
+    high = "high"  # 影响boot或系统可用性
+    critical = "critical"  # 需要人工介入恢复
 
 
 class ExecutorMode(str, Enum):

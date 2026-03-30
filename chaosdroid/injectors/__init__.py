@@ -5,8 +5,6 @@
 
 from .base import (
     BaseInjector,
-    FaultType,
-    RiskLevel,
     InjectContext,
     InjectResult,
     INJECTOR_REGISTRY,
@@ -14,6 +12,7 @@ from .base import (
     get_injector,
     list_injectors,
 )
+from chaosdroid.models.base import FaultType, RiskLevel
 
 # 导入并注册所有注入器
 from .storage_pressure import StoragePressureInjector

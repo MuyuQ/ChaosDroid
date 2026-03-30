@@ -15,6 +15,72 @@ from chaosdroid.executors.base import (
 )
 
 
+__all__ = [
+    "RealDeviceExecutor",
+    "DeviceError",
+    "DeviceOfflineError",
+    "AdbError",
+    "CommandTimeoutError",
+    "AdbNotFoundError",
+]
+
+
+class DeviceError(Exception):
+    """设备错误基类."""
+    pass
+
+
+class DeviceOfflineError(DeviceError):
+    """设备离线错误.
+
+    当设备无法连接或处于offline状态时抛出。
+    """
+    def __init__(self, serial: str, message: str = None):
+        self.serial = serial
+        self.message = message or f"Device {serial} is offline or not connected"
+        super().__init__(self.message)
+
+
+class AdbError(DeviceError):
+    """ADB通用错误.
+
+    当ADB命令执行失败时抛出，包含命令和错误详情。
+    """
+    def __init__(self, command: str, stderr: str = "", exit_code: int = -1):
+        self.command = command
+        self.stderr = stderr
+        self.exit_code = exit_code
+        self.message = f"ADB command failed: {command}"
+        if stderr:
+            self.message += f" - {stderr}"
+        if exit_code != -1:
+            self.message += f" (exit code: {exit_code})"
+        super().__init__(self.message)
+
+
+class CommandTimeoutError(DeviceError):
+    """命令超时错误.
+
+    当ADB命令执行超时时抛出。
+    """
+    def __init__(self, command: str, timeout: int):
+        self.command = command
+        self.timeout = timeout
+        self.message = f"Command '{command}' timed out after {timeout} seconds"
+        super().__init__(self.message)
+
+
+class AdbNotFoundError(DeviceError):
+    """ADB未找到错误.
+
+    当ADB可执行文件不存在时抛出。
+    """
+    def __init__(self, adb_path: str):
+        self.adb_path = adb_path
+        self.message = f"ADB executable not found at: {adb_path}"
+        super().__init__(self.message)
+
+
 class RealDeviceExecutor(BaseDeviceExecutor):
     """真实设备执行器
 
@@ -37,8 +103,22 @@ class RealDeviceExecutor(BaseDeviceExecutor):
         return cmd
 
     async def _run_adb_command(self, *args, timeout: int = 30) -> ShellResult:
-        """执行ADB命令."""
+        """执行ADB命令.
+
+        Args:
+            *args: ADB命令参数
+            timeout: 超时时间（秒）
+
+        Returns:
+            ShellResult: 命令执行结果
+
+        Raises:
+            AdbNotFoundError: ADB可执行文件不存在
+            CommandTimeoutError: 命令执行超时
+            AdbError: ADB命令执行失败
+        """
         cmd = self._build_adb_command(*args)
+        cmd_str = " ".join(cmd)
         started_at = asyncio.get_event_loop().time()
 
         try:
@@ -59,7 +139,7 @@ class RealDeviceExecutor(BaseDeviceExecutor):
                 return ShellResult(
                     success=False,
                     stdout="",
-                    stderr="Command timed out",
+                    stderr=f"Command timed out after {timeout} seconds",
                     exit_code=-1,
                     duration_ms=timeout * 1000
                 )
@@ -78,16 +158,61 @@ class RealDeviceExecutor(BaseDeviceExecutor):
             return ShellResult(
                 success=False,
                 stdout="",
-                stderr=f"ADB not found: {self.adb_path}",
+                stderr=f"ADB not found: {self.adb_path}. Please ensure Android SDK platform-tools is installed and in PATH.",
+                exit_code=-1
+            )
+        except PermissionError as e:
+            return ShellResult(
+                success=False,
+                stdout="",
+                stderr=f"Permission denied executing ADB: {e}",
+                exit_code=-1
+            )
+        except OSError as e:
+            return ShellResult(
+                success=False,
+                stdout="",
+                stderr=f"OS error executing ADB command: {e}",
                 exit_code=-1
             )
         except Exception as e:
             return ShellResult(
                 success=False,
                 stdout="",
-                stderr=str(e),
+                stderr=f"Unexpected error executing ADB command: {e}",
                 exit_code=-1
             )
+
+    def _check_device_offline(self, result: ShellResult) -> None:
+        """检查设备是否离线，如果是则抛出异常.
+
+        Args:
+            result: 命令执行结果
+
+        Raises:
+            DeviceOfflineError: 设备离线
+        """
+        if "device offline" in result.stderr.lower():
+            raise DeviceOfflineError(self.device_serial, f"Device {self.device_serial} is offline")
+        if "device not found" in result.stderr.lower():
+            raise DeviceOfflineError(self.device_serial, f"Device {self.device_serial} not found")
+        if "unauthorized" in result.stderr.lower():
+            raise DeviceOfflineError(self.device_serial, f"Device {self.device_serial} is unauthorized. Please authorize on device.")
+
+    def _raise_for_error(self, result: ShellResult, operation: str) -> None:
+        """检查错误并抛出适当的异常.
+
+        Args:
+            result: 命令执行结果
+            operation: 操作描述
+
+        Raises:
+            DeviceOfflineError: 设备离线
+            AdbError: ADB命令执行失败
+        """
+        self._check_device_offline(result)
+        if not result.success:
+            raise AdbError(operation, result.stderr, result.exit_code)
 
     async def is_online(self) -> bool:
         """检查设备是否在线."""

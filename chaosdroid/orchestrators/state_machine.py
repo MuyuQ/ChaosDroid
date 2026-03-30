@@ -654,7 +654,7 @@ class ScenarioOrchestrator:
                             "id": fault_profile.id,
                             "name": fault_profile.name,
                             "fault_type": fault_profile.fault_type,
-                            "parameters": json.loads(fault_profile.parameters_json or "{}"),
+                            "parameters": fault_profile.parameters or {},
                             "safe_cleanup_required": fault_profile.safe_cleanup_required,
                             "risk_level": fault_profile.risk_level,
                         }

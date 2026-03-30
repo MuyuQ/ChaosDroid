@@ -2,6 +2,7 @@
 
 提供场景执行的完整编排逻辑，负责协调执行器、注入器、验证器和恢复策略。
 """
+import asyncio
 import json
 import logging
 from datetime import datetime
@@ -29,6 +30,12 @@ from chaosdroid.models import (
 )
 from chaosdroid.models.database import get_session_context
 from chaosdroid.observers.collector import ArtifactCollector, ObservationCollector
+from chaosdroid.services.device_lock_manager import (
+    DeviceLockManager,
+    DeviceLockTimeoutError,
+    DeviceAlreadyLockedError,
+    get_device_lock_manager,
+)
 from chaosdroid.services.report_generator import ReportData, ReportGenerator
 from chaosdroid.validators.base import (
     BaseValidator,
@@ -52,14 +59,51 @@ class ExecutionService:
     - 设置恢复策略（根据recovery_profile）
     - 执行状态机
     - 生成报告
+    - 设备锁定防止并发执行
+    - 超时处理
     """
 
-    def __init__(self):
+    # 默认各阶段超时配置（秒）
+    DEFAULT_PREPARE_TIMEOUT = 60
+    DEFAULT_INJECT_TIMEOUT = 180
+    DEFAULT_VALIDATE_TIMEOUT = 180
+    DEFAULT_RECOVERY_TIMEOUT = 300
+    DEFAULT_COLLECT_TIMEOUT = 60
+
+    def __init__(
+        self,
+        device_lock_manager: Optional[DeviceLockManager] = None,
+        prepare_timeout: int = DEFAULT_PREPARE_TIMEOUT,
+        inject_timeout: int = DEFAULT_INJECT_TIMEOUT,
+        validate_timeout: int = DEFAULT_VALIDATE_TIMEOUT,
+        recovery_timeout: int = DEFAULT_RECOVERY_TIMEOUT,
+        collect_timeout: int = DEFAULT_COLLECT_TIMEOUT,
+    ):
+        """初始化执行服务.
+
+        Args:
+            device_lock_manager: 设备锁管理器实例
+            prepare_timeout: 准备阶段超时（秒）
+            inject_timeout: 注入阶段超时（秒）
+            validate_timeout: 验证阶段超时（秒）
+            recovery_timeout: 恢复阶段超时（秒）
+            collect_timeout: 收集阶段超时（秒）
+        """
         self.settings = get_settings()
         self._validator_registry: Dict[str, BaseValidator] = {}
+        self._device_lock_manager = device_lock_manager or get_device_lock_manager()
+        self._timeout_config = {
+            "prepare": prepare_timeout,
+            "inject": inject_timeout,
+            "validate": validate_timeout,
+            "recovery": recovery_timeout,
+            "collect": collect_timeout,
+        }
 
     async def execute_scenario(self, scenario_run_id: int) -> RunStatus:
         """执行场景的完整流程.
+
+        包含设备锁定机制，防止同一设备的并发执行。
 
         Args:
             scenario_run_id: 场景执行记录ID
@@ -95,68 +139,97 @@ class ExecutionService:
                 session, scenario_template.recovery_profile_id
             )
 
-        # 创建artifacts目录
-        artifacts_dir = self.settings.get_artifacts_dir() / str(scenario_run_id)
-        artifacts_dir.mkdir(parents=True, exist_ok=True)
+            device_serial = scenario_run.device_serial
 
-        # 设置执行上下文
-        context = self._build_execution_context(
-            scenario_run=scenario_run,
-            scenario_template=scenario_template,
-            fault_profile=fault_profile,
-            validation_profile=validation_profile,
-            recovery_profile=recovery_profile,
-            artifacts_dir=artifacts_dir,
-        )
+        # ===== 设备锁定 =====
+        try:
+            lock = await self._device_lock_manager.acquire_lock(
+                device_serial=device_serial,
+                scenario_run_id=scenario_run_id,
+                timeout_sec=self._timeout_config["recovery"] + 120,  # 给恢复阶段额外时间
+                wait_timeout_sec=30,
+            )
+            logger.info(f"设备锁已获取: device={device_serial}, run_id={scenario_run_id}")
+        except DeviceLockTimeoutError as e:
+            logger.error(f"获取设备锁超时: {e}")
+            await self._update_run_status(scenario_run_id, RunStatus.FAILED, finished=True)
+            return RunStatus.FAILED
+        except DeviceAlreadyLockedError as e:
+            logger.error(f"设备已被锁定: {e}")
+            await self._update_run_status(scenario_run_id, RunStatus.FAILED, finished=True)
+            return RunStatus.FAILED
 
-        # 设置执行器
-        executor = self._setup_executor(
-            mode=scenario_template.executor_mode,
-            device_serial=scenario_run.device_serial,
-            context=context,
-        )
-        context["executor"] = executor
+        try:
+            # 创建artifacts目录
+            artifacts_dir = self.settings.get_artifacts_dir() / str(scenario_run_id)
+            artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-        # 设置注入器
-        injector = self._setup_injector(
-            fault_profile=fault_profile,
-            context=context,
-        )
-        context["injector"] = injector
+            # 设置执行上下文
+            context = self._build_execution_context(
+                scenario_run=scenario_run,
+                scenario_template=scenario_template,
+                fault_profile=fault_profile,
+                validation_profile=validation_profile,
+                recovery_profile=recovery_profile,
+                artifacts_dir=artifacts_dir,
+            )
 
-        # 设置验证器
-        validator = self._setup_validator(
-            validation_profile=validation_profile,
-            context=context,
-        )
-        context["validator"] = validator
+            # 设置执行器
+            executor = self._setup_executor(
+                mode=scenario_template.executor_mode,
+                device_serial=device_serial,
+                context=context,
+            )
+            context["executor"] = executor
 
-        # 设置恢复策略
-        recovery_service = self._setup_recovery(
-            recovery_profile=recovery_profile,
-            context=context,
-        )
-        context["recovery_service"] = recovery_service
+            # 设置注入器
+            injector = self._setup_injector(
+                fault_profile=fault_profile,
+                context=context,
+            )
+            context["injector"] = injector
 
-        # 创建观测采集器
-        observation_collector = ObservationCollector(scenario_run_id)
-        context["observation_collector"] = observation_collector
+            # 设置验证器
+            validator = self._setup_validator(
+                validation_profile=validation_profile,
+                context=context,
+            )
+            context["validator"] = validator
 
-        # 执行流程
-        final_status = await self._run_execution_flow(
-            scenario_run_id=scenario_run_id,
-            context=context,
-        )
+            # 设置恢复策略
+            recovery_service = self._setup_recovery(
+                recovery_profile=recovery_profile,
+                context=context,
+            )
+            context["recovery_service"] = recovery_service
 
-        # 生成报告
-        await self._generate_report(
-            scenario_run_id=scenario_run_id,
-            context=context,
-            final_status=final_status,
-        )
+            # 创建观测采集器
+            observation_collector = ObservationCollector(scenario_run_id)
+            context["observation_collector"] = observation_collector
 
-        logger.info(f"场景执行完成 run_id={scenario_run_id}, status={final_status}")
-        return final_status
+            # 执行流程
+            final_status = await self._run_execution_flow(
+                scenario_run_id=scenario_run_id,
+                context=context,
+            )
+
+            # 生成报告
+            await self._generate_report(
+                scenario_run_id=scenario_run_id,
+                context=context,
+                final_status=final_status,
+            )
+
+            logger.info(f"场景执行完成 run_id={scenario_run_id}, status={final_status}")
+            return final_status
+
+        finally:
+            # ===== 释放设备锁 =====
+            await self._device_lock_manager.release_lock(
+                device_serial=device_serial,
+                scenario_run_id=scenario_run_id,
+            )
+            logger.info(f"设备锁已释放: device={device_serial}, run_id={scenario_run_id}")
 
     async def _get_scenario_run(
         self, session: AsyncSession, scenario_run_id: int
@@ -194,7 +267,7 @@ class ExecutionService:
             "id": profile.id,
             "name": profile.name,
             "fault_type": profile.fault_type,
-            "parameters": json.loads(profile.parameters_json or "{}"),
+            "parameters": profile.parameters or {},
             "safe_cleanup_required": profile.safe_cleanup_required,
             "risk_level": profile.risk_level,
         }
@@ -413,60 +486,73 @@ class ExecutionService:
     async def _execute_prepare_phase(
         self, scenario_run_id: int, context: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """执行准备阶段."""
+        """执行准备阶段（带超时控制）."""
         executor = context["executor"]
         started_at = datetime.utcnow()
+        timeout_sec = self._timeout_config["prepare"]
 
         result = {
             "success": True,
             "started_at": started_at.isoformat(),
             "finished_at": None,
             "details": {},
+            "timeout_sec": timeout_sec,
         }
 
         try:
-            # 检查设备在线
-            online = await executor.is_online()
-            if not online:
-                result["success"] = False
-                result["error"] = "device_offline"
-                result["message"] = "设备不在线"
-                return result
+            async with asyncio.timeout(timeout_sec):
+                # 检查设备在线
+                online = await executor.is_online()
+                if not online:
+                    result["success"] = False
+                    result["error"] = "device_offline"
+                    result["message"] = "设备不在线"
+                    return result
 
-            # 采集设备属性
-            properties = await executor.get_properties()
-            result["details"]["properties"] = properties
+                # 采集设备属性
+                properties = await executor.get_properties()
+                result["details"]["properties"] = properties
 
-            # 采集电池信息
-            battery_info = await executor.get_battery_info()
-            result["details"]["battery"] = {
-                "level": battery_info.level,
-                "status": battery_info.status,
-            }
+                # 采集电池信息
+                battery_info = await executor.get_battery_info()
+                result["details"]["battery"] = {
+                    "level": battery_info.level,
+                    "status": battery_info.status,
+                }
 
-            # 采集存储信息
-            storage_info = await executor.get_storage_info()
-            result["details"]["storage"] = {
-                "total_mb": storage_info.total // (1024 * 1024),
-                "available_mb": storage_info.available // (1024 * 1024),
-            }
+                # 采集存储信息
+                storage_info = await executor.get_storage_info()
+                result["details"]["storage"] = {
+                    "total_mb": storage_info.total // (1024 * 1024),
+                    "available_mb": storage_info.available // (1024 * 1024),
+                }
 
-            # 前置条件检查
-            issues = []
-            if battery_info.level < 20:
-                issues.append("low_battery")
-            if storage_info.available < 100 * 1024 * 1024:  # 100MB
-                issues.append("storage_low")
+                # 前置条件检查
+                issues = []
+                if battery_info.level < 20:
+                    issues.append("low_battery")
+                if storage_info.available < 100 * 1024 * 1024:  # 100MB
+                    issues.append("storage_low")
 
-            if issues:
-                result["success"] = False
-                result["error"] = "precheck_failed"
-                result["issues"] = issues
-                result["message"] = f"前置检查失败: {', '.join(issues)}"
-                return result
+                if issues:
+                    result["success"] = False
+                    result["error"] = "precheck_failed"
+                    result["issues"] = issues
+                    result["message"] = f"前置检查失败: {', '.join(issues)}"
+                    return result
 
             result["finished_at"] = datetime.utcnow().isoformat()
             result["message"] = "准备阶段完成"
+
+        except asyncio.TimeoutError:
+            result["success"] = False
+            result["error"] = "timeout"
+            result["timeout"] = True
+            result["message"] = f"准备阶段超时（{timeout_sec}秒）"
+            logger.error(f"准备阶段超时: run_id={scenario_run_id}, timeout={timeout_sec}s")
+            await self._record_step(
+                scenario_run_id, StepType.PRECHECK, StepStatus.TIMEOUT, result
+            )
 
         except Exception as e:
             result["success"] = False
@@ -479,13 +565,14 @@ class ExecutionService:
     async def _execute_inject_phase(
         self, scenario_run_id: int, context: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """执行注入阶段."""
+        """执行注入阶段（带超时控制）."""
         injector = context.get("injector")
         executor = context["executor"]
         fault_profile = context.get("fault_profile", {})
         artifacts_dir = context["artifacts_dir"]
 
         started_at = datetime.utcnow()
+        timeout_sec = self._timeout_config["inject"]
 
         result = {
             "success": False,
@@ -494,6 +581,7 @@ class ExecutionService:
             "started_at": started_at.isoformat(),
             "finished_at": None,
             "details": {},
+            "timeout_sec": timeout_sec,
         }
 
         if injector is None:
@@ -503,50 +591,63 @@ class ExecutionService:
             return result
 
         try:
-            # 构建注入上下文
-            inject_context = InjectContext(
-                scenario_run_id=scenario_run_id,
-                device_serial=context["device_serial"],
-                executor=executor,
-                fault_profile=fault_profile,
-                artifacts_dir=artifacts_dir,
-                started_at=started_at,
-                inject_stage=context["inject_stage"],
-            )
-
-            # 准备注入环境
-            prepare_success = await injector.prepare(inject_context)
-            if not prepare_success:
-                result["success"] = False
-                result["message"] = "注入准备失败"
-                await self._record_step(
-                    scenario_run_id, StepType.INJECT, StepStatus.FAILED, result
+            async with asyncio.timeout(timeout_sec):
+                # 构建注入上下文
+                inject_context = InjectContext(
+                    scenario_run_id=scenario_run_id,
+                    device_serial=context["device_serial"],
+                    executor=executor,
+                    fault_profile=fault_profile,
+                    artifacts_dir=artifacts_dir,
+                    started_at=started_at,
+                    inject_stage=context["inject_stage"],
                 )
-                return result
 
-            # 执行注入
-            inject_result: InjectResult = await injector.inject(inject_context)
+                # 准备注入环境
+                prepare_success = await injector.prepare(inject_context)
+                if not prepare_success:
+                    result["success"] = False
+                    result["message"] = "注入准备失败"
+                    await self._record_step(
+                        scenario_run_id, StepType.INJECT, StepStatus.FAILED, result
+                    )
+                    return result
 
-            result["success"] = inject_result.success
-            result["fault_injected"] = inject_result.fault_injected
-            result["fault_observed"] = inject_result.fault_observed
-            result["message"] = inject_result.message
-            result["details"] = inject_result.details
-            result["cleanup_required"] = inject_result.cleanup_required
-            result["finished_at"] = datetime.utcnow().isoformat()
+                # 执行注入
+                inject_result: InjectResult = await injector.inject(inject_context)
+
+                result["success"] = inject_result.success
+                result["fault_injected"] = inject_result.fault_injected
+                result["fault_observed"] = inject_result.fault_observed
+                result["message"] = inject_result.message
+                result["details"] = inject_result.details
+                result["cleanup_required"] = inject_result.cleanup_required
+                result["finished_at"] = datetime.utcnow().isoformat()
 
             # 记录步骤
-            step_status = StepStatus.SUCCESS if inject_result.success else StepStatus.FAILED
+            step_status = StepStatus.SUCCESS if result["success"] else StepStatus.FAILED
             await self._record_step(
                 scenario_run_id, StepType.INJECT, step_status, result
             )
 
-            logger.info(f"注入完成: {inject_result.message}")
+            logger.info(f"注入完成: {result['message']}")
+
+        except asyncio.TimeoutError:
+            result["success"] = False
+            result["error"] = "timeout"
+            result["timeout"] = True
+            result["message"] = f"注入阶段超时（{timeout_sec}秒）"
+            result["cleanup_required"] = True  # 超时后需要清理
+            logger.error(f"注入阶段超时: run_id={scenario_run_id}, timeout={timeout_sec}s")
+            await self._record_step(
+                scenario_run_id, StepType.INJECT, StepStatus.TIMEOUT, result
+            )
 
         except Exception as e:
             result["success"] = False
             result["error"] = str(e)
             result["message"] = f"注入阶段异常: {str(e)}"
+            result["cleanup_required"] = True  # 异常后需要清理
             logger.exception("注入阶段异常")
             await self._record_step(
                 scenario_run_id, StepType.INJECT, StepStatus.FAILED, result
@@ -557,7 +658,7 @@ class ExecutionService:
     async def _execute_validate_phase(
         self, scenario_run_id: int, context: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """执行验证阶段."""
+        """执行验证阶段（带超时控制）."""
         validator = context.get("validator")
         executor = context["executor"]
         validation_profile = context.get("validation_profile", {})
@@ -565,6 +666,7 @@ class ExecutionService:
         inject_result = context.get("inject_result")
 
         started_at = datetime.utcnow()
+        timeout_sec = self._timeout_config["validate"]
 
         result = {
             "passed": False,
@@ -572,6 +674,7 @@ class ExecutionService:
             "finished_at": None,
             "checks": [],
             "details": {},
+            "timeout_sec": timeout_sec,
         }
 
         if validator is None:
@@ -581,43 +684,54 @@ class ExecutionService:
             return result
 
         try:
-            # 构建验证上下文
-            validation_context = ValidationContext(
-                scenario_run_id=scenario_run_id,
-                device_serial=context["device_serial"],
-                executor=executor,
-                validation_profile=validation_profile,
-                inject_result=inject_result,
-                artifacts_dir=artifacts_dir,
-                started_at=started_at,
-            )
+            async with asyncio.timeout(timeout_sec):
+                # 构建验证上下文
+                validation_context = ValidationContext(
+                    scenario_run_id=scenario_run_id,
+                    device_serial=context["device_serial"],
+                    executor=executor,
+                    validation_profile=validation_profile,
+                    inject_result=inject_result,
+                    artifacts_dir=artifacts_dir,
+                    started_at=started_at,
+                )
 
-            # 执行验证
-            validation_result: ValidationResult = await validator.validate(validation_context)
+                # 执行验证
+                validation_result: ValidationResult = await validator.validate(validation_context)
 
-            result["passed"] = validation_result.passed
-            result["fault_observed"] = validation_result.fault_observed
-            result["checks"] = [
-                {
-                    "check_name": c.check_name,
-                    "passed": c.passed,
-                    "expected": c.expected,
-                    "actual": c.actual,
-                    "message": c.message,
-                }
-                for c in validation_result.checks
-            ]
-            result["details"] = validation_result.details
-            result["message"] = validation_result.message
-            result["finished_at"] = datetime.utcnow().isoformat()
+                result["passed"] = validation_result.passed
+                result["fault_observed"] = validation_result.fault_observed
+                result["checks"] = [
+                    {
+                        "check_name": c.check_name,
+                        "passed": c.passed,
+                        "expected": c.expected,
+                        "actual": c.actual,
+                        "message": c.message,
+                    }
+                    for c in validation_result.checks
+                ]
+                result["details"] = validation_result.details
+                result["message"] = validation_result.message
+                result["finished_at"] = datetime.utcnow().isoformat()
 
             # 记录步骤
-            step_status = StepStatus.SUCCESS if validation_result.passed else StepStatus.FAILED
+            step_status = StepStatus.SUCCESS if result["passed"] else StepStatus.FAILED
             await self._record_step(
                 scenario_run_id, StepType.VALIDATE, step_status, result
             )
 
-            logger.info(f"验证完成: {validation_result.message}")
+            logger.info(f"验证完成: {result['message']}")
+
+        except asyncio.TimeoutError:
+            result["passed"] = False
+            result["error"] = "timeout"
+            result["timeout"] = True
+            result["message"] = f"验证阶段超时（{timeout_sec}秒）"
+            logger.error(f"验证阶段超时: run_id={scenario_run_id}, timeout={timeout_sec}s")
+            await self._record_step(
+                scenario_run_id, StepType.VALIDATE, StepStatus.TIMEOUT, result
+            )
 
         except Exception as e:
             result["passed"] = False
@@ -633,37 +747,40 @@ class ExecutionService:
     async def _execute_collect_phase(
         self, scenario_run_id: int, context: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """执行收集阶段."""
+        """执行收集阶段（带超时控制）."""
         executor = context["executor"]
         observation_collector = context["observation_collector"]
 
         started_at = datetime.utcnow()
+        timeout_sec = self._timeout_config["collect"]
 
         result = {
             "success": True,
             "started_at": started_at.isoformat(),
             "finished_at": None,
             "artifacts": [],
+            "timeout_sec": timeout_sec,
         }
 
         try:
-            # 收集所有观测数据
-            if await executor.is_online():
-                logcat = await executor.get_logcat(1000)
-                properties = await executor.get_properties()
-                battery_info = await executor.get_battery_info()
+            async with asyncio.timeout(timeout_sec):
+                # 收集所有观测数据
+                if await executor.is_online():
+                    logcat = await executor.get_logcat(1000)
+                    properties = await executor.get_properties()
+                    battery_info = await executor.get_battery_info()
 
-                # 保存产物
-                collector = ArtifactCollector(scenario_run_id)
-                await collector.save_logcat(logcat)
-                await collector.save_getprop(properties)
-                await collector.save_battery_info({
-                    "level": battery_info.level,
-                    "status": battery_info.status,
-                    "temperature": battery_info.temperature,
-                })
+                    # 保存产物
+                    collector = ArtifactCollector(scenario_run_id)
+                    await collector.save_logcat(logcat)
+                    await collector.save_getprop(properties)
+                    await collector.save_battery_info({
+                        "level": battery_info.level,
+                        "status": battery_info.status,
+                        "temperature": battery_info.temperature,
+                    })
 
-                result["artifacts"] = ["logcat", "getprop", "battery"]
+                    result["artifacts"] = ["logcat", "getprop", "battery"]
 
             result["finished_at"] = datetime.utcnow().isoformat()
 
@@ -672,9 +789,20 @@ class ExecutionService:
                 scenario_run_id, StepType.COLLECT, StepStatus.SUCCESS, result
             )
 
+        except asyncio.TimeoutError:
+            result["success"] = False
+            result["error"] = "timeout"
+            result["timeout"] = True
+            result["message"] = f"收集阶段超时（{timeout_sec}秒）"
+            logger.error(f"收集阶段超时: run_id={scenario_run_id}, timeout={timeout_sec}s")
+            await self._record_step(
+                scenario_run_id, StepType.COLLECT, StepStatus.TIMEOUT, result
+            )
+
         except Exception as e:
             result["success"] = False
             result["error"] = str(e)
+            result["message"] = f"收集阶段异常: {str(e)}"
             logger.exception("收集阶段异常")
             await self._record_step(
                 scenario_run_id, StepType.COLLECT, StepStatus.FAILED, result
@@ -731,6 +859,9 @@ class ExecutionService:
             )
             scenario_run = result.scalar_one_or_none()
             if scenario_run:
+                # 如果是从QUEUED开始执行，设置started_at
+                if scenario_run.status == RunStatus.QUEUED.value:
+                    scenario_run.started_at = datetime.utcnow()
                 scenario_run.status = status.value
                 if finished:
                     scenario_run.finished_at = datetime.utcnow()

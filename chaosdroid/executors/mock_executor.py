@@ -1,6 +1,7 @@
 """Mock设备执行器."""
 import asyncio
 import random
+from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 
 from chaosdroid.executors.base import (
@@ -251,7 +252,7 @@ class MockDeviceExecutor(BaseDeviceExecutor):
         return self.state.boot_completed
 
     async def get_logcat(self, lines: int = 1000) -> str:
-        """获取logcat日志"""
+        """获取logcat日志."""
         await self._simulate_delay(200, 500)
 
         if not self.state.online:
@@ -259,8 +260,148 @@ class MockDeviceExecutor(BaseDeviceExecutor):
 
         # 生成模拟日志
         log_lines = []
+        # 模拟Android日志组件和进程
+        components = [
+            ("ActivityManager", "I", "system_server", 1000),
+            ("PackageManager", "I", "system_server", 1000),
+            ("DisplayManager", "I", "system_server", 1000),
+            ("WindowManager", "I", "system_server", 1000),
+            ("PowerManager", "I", "system_server", 1000),
+            ("NetworkMonitor", "I", "network_service", 1051),
+            ("BatteryService", "I", "system_server", 1000),
+            ("Choreographer", "I", "com.mock.app", 12345),
+            ("OpenGLRenderer", "I", "com.mock.app", 12345),
+            ("SurfaceFlinger", "I", "surfaceflinger", 1000),
+            ("AudioService", "I", "system_server", 1000),
+            ("InputMethodManager", "I", "system_server", 1000),
+            ("dalvikvm", "I", "com.mock.app", 12345),
+            ("AndroidRuntime", "E", "com.mock.app", 12345),
+            ("System.err", "W", "com.mock.app", 12345),
+        ]
+
+        log_messages = {
+            "ActivityManager": [
+                "START u0 {com.mock.app/com.mock.app.MainActivity} from uid 10123",
+                "Displayed com.mock.app/.MainActivity: +1s234ms",
+                "Stopping service: com.mock.app/.BackgroundService",
+                "Kill app with pid 12345: com.mock.app",
+                "Background started concurrent mark sweep GC freed 12345K",
+            ],
+            "PackageManager": [
+                "Scanning /data/app/com.mock.app-1",
+                "Package com.mock.app codePath changed; retaining data",
+                "Successfully installed package com.mock.app",
+                "Package com.mock.app already installed",
+            ],
+            "DisplayManager": [
+                "Display device changed state: \"Built-in Screen\"",
+                "Display 0 resolution: 1080x2400, density: 420dpi",
+                "Setting display mode: 0",
+            ],
+            "WindowManager": [
+                "Adding window Window{abc123 com.mock.app/com.mock.app.MainActivity}",
+                "Removing window Window{abc123 com.mock.app/com.mock.app.MainActivity}",
+                "Relayout Window{abc123 com.mock.app/com.mock.app.MainActivity}",
+            ],
+            "PowerManager": [
+                "Screen on duration: 12345 ms",
+                "Going to sleep due to power button",
+                "Waking up from sleep",
+            ],
+            "NetworkMonitor": [
+                "Network available: WIFI",
+                "Network connection validated",
+                "Network connection lost",
+                "Signal strength changed: 4 bars",
+            ],
+            "BatteryService": [
+                "Battery level changed: 85%",
+                "Charging status: Discharging",
+                "Battery temperature: 28C",
+            ],
+            "Choreographer": [
+                "Skipped 45 frames! The application may be doing too much work on its main thread.",
+                "Skipped 12 frames",
+                "Frame rate: 60 fps",
+            ],
+            "OpenGLRenderer": [
+                "Initialized EGL, context: 0x12345678",
+                "SwapBuffers: 16ms",
+                "Texture cache size: 32MB",
+            ],
+            "SurfaceFlinger": [
+                "Layer: com.mock.app/com.mock.app.MainActivity",
+                "BufferQueue: max_buffer_count=3",
+                "VSync: 60Hz",
+            ],
+            "AudioService": [
+                "Audio route changed: speaker",
+                "Stream volume: 5",
+                "Audio focus request: granted",
+            ],
+            "InputMethodManager": [
+                "startInput: view=com.mock.app EditText",
+                "hideSoftInput: reason=FOCUS_CHANGED",
+                "showSoftInput: reason=USER_REQUEST",
+            ],
+            "dalvikvm": [
+                "GC_FOR_ALLOC freed 1234K, 45% free 8MB/16MB, paused 5ms",
+                "GC_CONCURRENT freed 5678K, 50% free 12MB/24MB, paused 2ms+3ms",
+                "GC_EXPLICIT freed 234K, 40% free 6MB/10MB, paused 3ms",
+            ],
+            "AndroidRuntime": [
+                "FATAL EXCEPTION: main",
+                "java.lang.NullPointerException: Attempt to invoke virtual method on a null object reference",
+                "    at com.mock.app.MainActivity$1.onClick(MainActivity.java:42)",
+                "    at android.view.View.performClick(View.java:7500)",
+                "Shutting down VM",
+            ],
+            "System.err": [
+                "java.io.IOException: Connection refused",
+                "    at com.mock.app.NetworkHelper.connect(NetworkHelper.java:123)",
+                "java.lang.IllegalStateException: Not connected to service",
+                "    at com.mock.app.ServiceHelper.getService(ServiceHelper.java:45)",
+            ],
+        }
+
+        # 根据场景调整错误日志比例
+        error_probability = 0.05  # 默认错误概率
+        if self.state.scenario == MockScenario.network_error:
+            error_probability = 0.2
+
+        # 生成时间戳基准
+        base_time = datetime.now() - timedelta(seconds=lines // 2)
+
         for i in range(min(lines, 100)):
-            log_lines.append(f"Mock log line {i}")
+            # 随机选择组件
+            component, _, process, pid = random.choice(components)
+
+            # 根据场景和概率选择日志级别
+            if component == "AndroidRuntime" or (random.random() < error_probability):
+                level = "E"
+            elif component == "System.err" or (random.random() < error_probability * 2):
+                level = "W"
+            elif random.random() < 0.1:
+                level = "D"
+            else:
+                level = "I"
+
+            # 生成时间戳
+            timestamp = base_time + timedelta(milliseconds=i * 50)
+            time_str = timestamp.strftime("%m-%d %H:%M:%S.%f")[:-3]
+
+            # 获取日志消息
+            messages = log_messages.get(component, ["Generic log message"])
+            message = random.choice(messages)
+
+            # 根据日志级别添加线程ID
+            tid = random.randint(1000, 9999)
+
+            # 构建Android logcat格式
+            # 格式: <timestamp> <pid>-<tid> <level>/<tag>: <message>
+            log_line = f"{time_str} {pid}-{tid} {level}/{component}: {message}"
+            log_lines.append(log_line)
+
         return "\n".join(log_lines)
 
     def get_state(self) -> MockDeviceState:

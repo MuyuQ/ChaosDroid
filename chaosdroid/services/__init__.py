@@ -4,6 +4,25 @@
 提供业务逻辑和执行服务。
 """
 
+# 设备锁管理
+from .device_lock_manager import (
+    DeviceLock,
+    DeviceLockError,
+    DeviceLockManager,
+    DeviceLockTimeoutError,
+    DeviceAlreadyLockedError,
+    get_device_lock_manager,
+    init_device_lock_manager,
+    shutdown_device_lock_manager,
+)
+
+# 配置文件缓存
+from .profile_service import (
+    ProfileCache,
+    get_profile_cache,
+    clear_profile_cache,
+)
+
 # 现有服务
 from .report_generator import ReportGenerator, ReportData
 from .execution_service import ExecutionService, get_execution_service
@@ -92,6 +111,19 @@ from .report_service import (
 )
 
 __all__ = [
+    # 设备锁管理
+    "DeviceLock",
+    "DeviceLockError",
+    "DeviceLockManager",
+    "DeviceLockTimeoutError",
+    "DeviceAlreadyLockedError",
+    "get_device_lock_manager",
+    "init_device_lock_manager",
+    "shutdown_device_lock_manager",
+    # 配置文件缓存
+    "ProfileCache",
+    "get_profile_cache",
+    "clear_profile_cache",
     # 报告生成
     "ReportGenerator",
     "ReportData",
