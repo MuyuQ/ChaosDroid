@@ -105,6 +105,31 @@ def db_session(sync_db_engine):
     session.close()
 
 
+@pytest.fixture
+async def async_db_engine():
+    """创建异步内存数据库引擎."""
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield engine
+    await engine.dispose()
+
+
+@pytest.fixture
+async def async_db_session(async_db_engine):
+    """提供异步数据库会话."""
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    async_session_maker = async_sessionmaker(
+        async_db_engine, class_=AsyncSession, expire_on_commit=False
+    )
+    session = async_session_maker()
+    yield session
+    await session.close()
+
+
 def test_device_sync_calculate_health_score(db_session):
     """Test health score calculation.
 
@@ -546,14 +571,16 @@ def test_lease_manager_get_preemptable_leases(db_session):
     db_session.add_all([device1, device2])
     db_session.flush()
 
-    # 创建执行记录
+    # 创建执行记录（run1 可中断，run2 不可中断）
     run1 = ScenarioRun(
         device_serial="test-device-lease-007",
         status=RunStatus.QUEUED.value,
+        interruptible=True,
     )
     run2 = ScenarioRun(
         device_serial="test-device-lease-008",
         status=RunStatus.QUEUED.value,
+        interruptible=False,
     )
     db_session.add_all([run1, run2])
     db_session.flush()
@@ -561,22 +588,24 @@ def test_lease_manager_get_preemptable_leases(db_session):
     # 创建租约管理器
     lease_manager = LeaseManager(db_session)
 
-    # 创建可抢占租约
+    # 创建可抢占租约（device1, run1）
     preemptable_lease = lease_manager.create_lease(device1, run1, preemptible=True)
 
-    # 创建不可抢占租约
+    # 创建不可抢占租约（device2, run2）
     non_preemptable_lease = lease_manager.create_lease(device2, run2, preemptible=False)
 
     # 获取可抢占租约列表
     preemptable_leases = lease_manager.get_preemptable_leases()
 
-    # 验证只有可抢占的租约
+    # 验证只有可抢占且可中断的租约
     assert len(preemptable_leases) >= 1
     assert preemptable_lease.id in [l.id for l in preemptable_leases]
     assert non_preemptable_lease.id not in [l.id for l in preemptable_leases]
 
 
 # ==================== QuarantineService Tests ====================
+
+
 
 
 @pytest.fixture
@@ -1145,3 +1174,254 @@ def test_pool_manager_invalid_purpose(db_session):
         )
 
     assert "无效的purpose值" in str(exc_info.value)
+
+
+# ==================== Scheduler Tests ====================
+
+
+async def test_scheduler_schedule_once(async_db_session):
+    """Test Scheduler can allocate devices to queued runs.
+
+    测试 Scheduler 能够为排队中的任务分配设备。
+    """
+    from chaosdroid.scheduling.scheduler import Scheduler
+    from chaosdroid.scheduling.enums import DeviceStatus, Priority
+    from chaosdroid.models.scenario import ScenarioRun
+    from chaosdroid.models.base import RunStatus
+
+    # 创建3个设备
+    devices = [
+        Device(
+            serial=f"test-device-{i}",
+            status=DeviceStatus.IDLE.value,
+            battery_level=80,
+            health_score=90,
+        )
+        for i in range(3)
+    ]
+    async_db_session.add_all(devices)
+    await async_db_session.flush()
+
+    # 创建5个排队任务（比设备多）
+    runs = [
+        ScenarioRun(
+            device_serial=f"test-device-{i % 3}",
+            status=RunStatus.QUEUED.value,
+            priority=Priority.NORMAL.value,
+            interruptible=True,
+        )
+        for i in range(5)
+    ]
+    async_db_session.add_all(runs)
+    await async_db_session.flush()
+
+    # 创建调度器并执行一次调度
+    scheduler = Scheduler(async_db_session)
+    allocated_count = await scheduler.schedule_once()
+
+    # 验证只有3个任务被分配（因为只有3个设备）
+    assert allocated_count == 3
+
+    # 验证已分配任务状态为 RESERVED
+    await async_db_session.refresh(runs[0])
+    await async_db_session.refresh(runs[1])
+    await async_db_session.refresh(runs[2])
+    assert runs[0].status == RunStatus.RESERVED.value
+    assert runs[1].status == RunStatus.RESERVED.value
+    assert runs[2].status == RunStatus.RESERVED.value
+
+    # 验证未分配任务仍为 QUEUED
+    await async_db_session.refresh(runs[3])
+    await async_db_session.refresh(runs[4])
+    assert runs[3].status == RunStatus.QUEUED.value
+    assert runs[4].status == RunStatus.QUEUED.value
+
+
+async def test_scheduler_priority_ordering(async_db_session):
+    """Test Scheduler processes runs in priority order.
+
+    测试 Scheduler 按优先级顺序处理任务。
+    """
+    from chaosdroid.scheduling.scheduler import Scheduler
+    from chaosdroid.scheduling.enums import DeviceStatus, Priority
+    from chaosdroid.models.scenario import ScenarioRun
+    from chaosdroid.models.base import RunStatus
+
+    # 创建1个设备
+    device = Device(
+        serial="test-device-priority",
+        status=DeviceStatus.IDLE.value,
+        battery_level=80,
+        health_score=90,
+    )
+    async_db_session.add(device)
+    await async_db_session.flush()
+
+    # 创建3个不同优先级的任务：normal, high, emergency
+    normal_run = ScenarioRun(
+        device_serial="test-device-priority",
+        status=RunStatus.QUEUED.value,
+        priority=Priority.NORMAL.value,
+        interruptible=True,
+    )
+    high_run = ScenarioRun(
+        device_serial="test-device-priority",
+        status=RunStatus.QUEUED.value,
+        priority=Priority.HIGH.value,
+        interruptible=True,
+    )
+    emergency_run = ScenarioRun(
+        device_serial="test-device-priority",
+        status=RunStatus.QUEUED.value,
+        priority=Priority.EMERGENCY.value,
+        interruptible=False,
+    )
+    async_db_session.add_all([normal_run, high_run, emergency_run])
+    await async_db_session.flush()
+
+    # 创建调度器并执行调度
+    scheduler = Scheduler(async_db_session)
+    allocated_count = await scheduler.schedule_once()
+
+    # 验证只有1个任务被分配（只有1个设备）
+    assert allocated_count == 1
+
+    # 验证emergency任务被分配（优先级最高）
+    await async_db_session.refresh(emergency_run)
+    await async_db_session.refresh(high_run)
+    await async_db_session.refresh(normal_run)
+
+    # emergency 应被分配
+    assert emergency_run.status == RunStatus.RESERVED.value
+    assert emergency_run.device_id == device.id
+
+    # high 和 normal 应仍为 queued
+    assert high_run.status == RunStatus.QUEUED.value
+    assert normal_run.status == RunStatus.QUEUED.value
+
+
+async def test_scheduler_emergency_preemption(async_db_session):
+    """Test Scheduler can preempt running tasks for emergency.
+
+    测试 Scheduler 能够为紧急任务抢占正在运行的任务。
+    """
+    from chaosdroid.scheduling.scheduler import Scheduler
+    from chaosdroid.scheduling.enums import DeviceStatus, Priority, LeaseStatus
+    from chaosdroid.scheduling.lease_manager import LeaseManager
+    from chaosdroid.models.scenario import ScenarioRun
+    from chaosdroid.models.device_lease import DeviceLease
+    from chaosdroid.models.base import RunStatus
+
+    # 创建1个设备
+    device = Device(
+        serial="test-device-preempt",
+        status=DeviceStatus.IDLE.value,
+        battery_level=80,
+        health_score=90,
+    )
+    async_db_session.add(device)
+    await async_db_session.flush()
+
+    # 创建一个可抢占的任务（normal优先级，interruptible=True）
+    normal_run = ScenarioRun(
+        device_serial="test-device-preempt",
+        status=RunStatus.QUEUED.value,
+        priority=Priority.NORMAL.value,
+        interruptible=True,  # 可被抢占
+    )
+    async_db_session.add(normal_run)
+    await async_db_session.flush()
+
+    # 手动分配设备给normal任务（模拟已有运行任务）
+    lease_manager = LeaseManager(async_db_session)
+    lease = await lease_manager.create_lease(device, normal_run, preemptible=True)
+
+    # 验证设备已被分配
+    await async_db_session.refresh(device)
+    assert device.status == DeviceStatus.RESERVED.value
+    await async_db_session.refresh(normal_run)
+    assert normal_run.status == RunStatus.RESERVED.value
+
+    # 创建紧急任务
+    emergency_run = ScenarioRun(
+        device_serial="test-device-preempt",
+        status=RunStatus.QUEUED.value,
+        priority=Priority.EMERGENCY.value,
+        interruptible=False,
+    )
+    async_db_session.add(emergency_run)
+    await async_db_session.flush()
+
+    # 执行调度（应该抢占normal任务）
+    scheduler = Scheduler(async_db_session)
+    allocated_count = await scheduler.schedule_once()
+
+    # 验证emergency任务被分配
+    assert allocated_count == 1
+
+    # 验证emergency任务状态
+    await async_db_session.refresh(emergency_run)
+    assert emergency_run.status == RunStatus.RESERVED.value
+    assert emergency_run.device_id == device.id
+
+    # 验证normal任务被抢占
+    await async_db_session.refresh(normal_run)
+    assert normal_run.status == RunStatus.PREEMPTED.value
+    assert normal_run.preempted_by_run_id == emergency_run.id
+
+    # 验证旧租约被抢占
+    await async_db_session.refresh(lease)
+    assert lease.lease_status == LeaseStatus.PREEMPTED.value
+
+
+async def test_scheduler_get_scheduling_stats(async_db_session):
+    """Test Scheduler can get scheduling statistics.
+
+    测试 Scheduler 能够获取调度统计信息。
+    """
+    from chaosdroid.scheduling.scheduler import Scheduler
+    from chaosdroid.scheduling.enums import DeviceStatus, Priority
+    from chaosdroid.models.scenario import ScenarioRun
+    from chaosdroid.models.base import RunStatus
+
+    # 创建设备
+    devices = [
+        Device(
+            serial=f"stats-device-{i}",
+            status=DeviceStatus.IDLE.value,
+            battery_level=80,
+            health_score=90,
+        )
+        for i in range(2)
+    ]
+    async_db_session.add_all(devices)
+    await async_db_session.flush()
+
+    # 创建不同状态的任务
+    queued_run = ScenarioRun(
+        device_serial="stats-device-0",
+        status=RunStatus.QUEUED.value,
+        priority=Priority.NORMAL.value,
+    )
+    reserved_run = ScenarioRun(
+        device_serial="stats-device-1",
+        status=RunStatus.RESERVED.value,
+        priority=Priority.HIGH.value,
+    )
+    preempted_run = ScenarioRun(
+        device_serial="stats-device-0",
+        status=RunStatus.PREEMPTED.value,
+        priority=Priority.NORMAL.value,
+    )
+    async_db_session.add_all([queued_run, reserved_run, preempted_run])
+    await async_db_session.flush()
+
+    # 获取统计信息
+    scheduler = Scheduler(async_db_session)
+    stats = await scheduler.get_scheduling_stats()
+
+    # 验证统计信息
+    assert stats["queued_runs"] == 1
+    assert stats["reserved_runs"] == 1
+    assert stats["preempted_runs"] == 1
+    assert stats["idle_devices"] == 2  # 两个IDLE设备
