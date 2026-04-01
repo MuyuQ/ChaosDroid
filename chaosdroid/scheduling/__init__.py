@@ -12,6 +12,7 @@ from .enums import (
 )
 from .lease_manager import LeaseManager
 from .pool_manager import PoolManager
+from .scheduler import Scheduler
 from .device_sync import DeviceSyncService
 from .quarantine import QuarantineService
 
@@ -24,6 +25,7 @@ __all__ = [
     "EventSeverity",
     "LeaseManager",
     "PoolManager",
+    "Scheduler",
     "DeviceSyncService",
     "QuarantineService",
 ]
