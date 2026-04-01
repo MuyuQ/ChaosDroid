@@ -40,6 +40,8 @@ class RunStatus(str, Enum):
     """场景执行状态枚举。"""
 
     QUEUED = "queued"  # 排队中
+    ALLOCATING = "allocating"  # 正在分配设备
+    RESERVED = "reserved"  # 已分配设备，等待执行
     PREPARING = "preparing"  # 准备中
     INJECTING = "injecting"  # 注入中
     VALIDATING = "validating"  # 验证中
@@ -47,6 +49,7 @@ class RunStatus(str, Enum):
     PASSED = "passed"  # 通过
     FAILED = "failed"  # 失败
     PARTIAL = "partial"  # 部分通过
+    PREEMPTED = "preempted"  # 被抢占
 
 
 class StepType(str, Enum):
