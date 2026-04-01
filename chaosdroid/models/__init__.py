@@ -42,6 +42,10 @@ async def init_db(database_path: str = "chaosdroid.db") -> None:
 
 # 模型
 from .artifact import Artifact, Report
+from .device import Device
+from .device_lease import DeviceLease
+from .device_pool import DevicePool
+from .event import IncidentEvent
 from .profiles import FaultProfile, RecoveryProfile, ValidationProfile
 from .scenario import ScenarioRun, ScenarioStep, ScenarioTemplate
 
@@ -79,4 +83,8 @@ __all__ = [
     "ScenarioStep",
     "Artifact",
     "Report",
+    "Device",
+    "DevicePool",
+    "DeviceLease",
+    "IncidentEvent",
 ]

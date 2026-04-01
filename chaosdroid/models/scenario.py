@@ -4,16 +4,18 @@
 包含 ScenarioTemplate、ScenarioRun 和 ScenarioStep 模型定义。
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, Index
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, Index, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, InjectStage, RunStatus, StepStatus, StepType, TargetType, ExecutorMode, TimestampMixin
 
 if TYPE_CHECKING:
     from .artifact import Artifact, Report
+    from .device_lease import DeviceLease
+    from .event import IncidentEvent
     from .profiles import FaultProfile, RecoveryProfile, ValidationProfile
 
 
@@ -76,6 +78,37 @@ class ScenarioTemplate(Base, TimestampMixin):
         comment="是否启用",
     )
 
+    # 新增：调度相关字段
+    default_priority: Mapped[str] = mapped_column(
+        String(16),
+        default="normal",
+        nullable=False,
+        comment="默认优先级: normal/high/emergency"
+    )
+    device_pool_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("device_pools.id"),
+        nullable=True,
+        comment="默认设备池ID"
+    )
+    device_selector_json: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
+        comment="设备选择条件，如 {'tags': ['stable'], 'min_health': 60}"
+    )
+    interruptible: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+        comment="是否可被 emergency 任务抢占"
+    )
+    max_concurrent: Mapped[int | None] = mapped_column(
+        Integer,
+        default=1,
+        nullable=True,
+        comment="最大并发执行数"
+    )
+
     # 关系定义
     fault_profile: Mapped["FaultProfile | None"] = relationship(
         "FaultProfile",
@@ -113,6 +146,8 @@ class ScenarioRun(Base, TimestampMixin):
         Index("ix_scenario_runs_status", "status"),
         Index("ix_scenario_runs_scenario_template_id", "scenario_template_id"),
         Index("ix_scenario_runs_device_serial", "device_serial"),
+        Index("ix_scenario_runs_status_priority_submitted", "status", "priority", "submitted_at"),
+        Index("ix_scenario_runs_device_id", "device_id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, comment="主键")
@@ -155,6 +190,62 @@ class ScenarioRun(Base, TimestampMixin):
         comment="结果摘要JSON，包含执行结果的详细信息",
     )
 
+    # 新增：调度相关字段
+    priority: Mapped[str] = mapped_column(
+        String(16),
+        default="normal",
+        nullable=False,
+        index=True,
+        comment="执行优先级: normal/high/emergency"
+    )
+    device_pool_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("device_pools.id"),
+        nullable=True,
+        comment="执行设备池"
+    )
+    device_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("devices.id"),
+        nullable=True,
+        comment="实际分配的设备ID"
+    )
+    lease_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("device_leases.id"),
+        nullable=True,
+        comment="设备租约ID"
+    )
+    submitted_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True,
+        comment="提交时间"
+    )
+    allocated_at: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True,
+        comment="设备分配时间"
+    )
+    preempted_at: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True,
+        comment="被抢占时间"
+    )
+    preempted_by_run_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("scenario_runs.id"),
+        nullable=True,
+        comment="抢占此任务的任务ID"
+    )
+    interruptible: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+        comment="是否可被抢占"
+    )
+
     # 关系定义
     scenario_template: Mapped["ScenarioTemplate | None"] = relationship(
         "ScenarioTemplate",
@@ -182,6 +273,21 @@ class ScenarioRun(Base, TimestampMixin):
         back_populates="scenario_run",
         uselist=False,
         cascade="all, delete-orphan",
+    )
+
+    # 反向关系：关联的事件记录
+    incident_events: Mapped[list["IncidentEvent"]] = relationship(
+        "IncidentEvent",
+        back_populates="scenario_run",
+        cascade="all, delete-orphan",
+    )
+
+    # 反向关系：关联的设备租约
+    device_leases: Mapped[list["DeviceLease"]] = relationship(
+        "DeviceLease",
+        back_populates="scenario_run",
+        cascade="all, delete-orphan",
+        foreign_keys="DeviceLease.scenario_run_id",
     )
 
     def __repr__(self) -> str:
