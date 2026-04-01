@@ -10,6 +10,10 @@ from .enums import (
     EventType,
     EventSeverity,
 )
+from .lease_manager import LeaseManager
+from .pool_manager import PoolManager
+from .device_sync import DeviceSyncService
+from .quarantine import QuarantineService
 
 __all__ = [
     "DeviceStatus",
@@ -18,4 +22,8 @@ __all__ = [
     "Priority",
     "EventType",
     "EventSeverity",
+    "LeaseManager",
+    "PoolManager",
+    "DeviceSyncService",
+    "QuarantineService",
 ]
