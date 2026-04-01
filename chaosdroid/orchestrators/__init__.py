@@ -22,6 +22,7 @@ from .execution import (
     RecoverPhaseExecutor,
     CollectPhaseExecutor,
     ScenarioExecution,
+    PreemptionException,
 )
 
 __all__ = [
@@ -42,4 +43,5 @@ __all__ = [
     "RecoverPhaseExecutor",
     "CollectPhaseExecutor",
     "ScenarioExecution",
+    "PreemptionException",
 ]

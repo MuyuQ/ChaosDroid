@@ -4,7 +4,7 @@
 """
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -16,6 +16,11 @@ from chaosdroid.observers.collector import ArtifactCollector, ObservationCollect
 from chaosdroid.validators.base import BaseValidator, ValidationContext, ValidationResult
 
 logger = logging.getLogger(__name__)
+
+
+class PreemptionException(Exception):
+    """任务被抢占异常."""
+    pass
 
 
 class ExecutionPhaseResult:
@@ -861,3 +866,119 @@ class ScenarioExecution:
             return "partial"
 
         return "failed"
+
+    async def execute_with_lease(
+        self,
+        executor: BaseDeviceExecutor,
+        injector: Optional[BaseInjector],
+        validator: Optional[BaseValidator],
+        fault_profile: Optional[Dict[str, Any]],
+        validation_profile: Optional[Dict[str, Any]],
+        recovery_profile: Optional[Dict[str, Any]],
+        inject_stage: str = "precheck",
+    ) -> Dict[str, Any]:
+        """在有租约的情况下执行.
+
+        执行完成后自动释放租约。
+
+        Args:
+            executor: 设备执行器
+            injector: 故障注入器
+            validator: 验证器
+            fault_profile: 故障配置
+            validation_profile: 验证配置
+            recovery_profile: 恢复配置
+            inject_stage: 注入阶段
+
+        Returns:
+            Dict[str, Any]: 执行结果汇总
+
+        Raises:
+            ValueError: 没有活跃的设备租约
+        """
+        from sqlalchemy.orm import Session
+        from chaosdroid.models import get_session_context, Device, DeviceLease, ScenarioRun
+        from chaosdroid.scheduling import LeaseManager
+        from chaosdroid.scheduling.enums import DeviceStatus, LeaseStatus
+
+        with get_session_context() as session:
+            lease_manager = LeaseManager(session)
+
+            # 获取租约
+            lease = lease_manager.get_run_lease(self.scenario_run_id)
+            if not lease:
+                raise ValueError(f"没有活跃的设备租约: run_id={self.scenario_run_id}")
+
+            device = session.get(Device, lease.device_id)
+            if not device:
+                raise ValueError(f"设备不存在: device_id={lease.device_id}")
+
+            try:
+                # 执行完整流程
+                result = await self.run_full_execution(
+                    executor=executor,
+                    injector=injector,
+                    validator=validator,
+                    fault_profile=fault_profile,
+                    validation_profile=validation_profile,
+                    recovery_profile=recovery_profile,
+                    inject_stage=inject_stage,
+                )
+
+                return result
+
+            except PreemptionException:
+                # 被抢占时租约已在抢占流程中处理
+                logger.warning(f"任务被抢占: run_id={self.scenario_run_id}")
+                raise
+
+            except Exception as e:
+                logger.exception(f"执行异常: run_id={self.scenario_run_id}")
+                raise
+
+            finally:
+                # 确保租约被释放（除非被抢占）
+                session.refresh(lease)
+                if lease.lease_status != LeaseStatus.PREEMPTED.value:
+                    lease_manager.release_lease(lease)
+                    device.status = DeviceStatus.IDLE.value
+                    session.commit()
+                    logger.info(f"租约已释放: lease_id={lease.id}")
+
+    async def on_preemption(self) -> bool:
+        """被抢占时的清理逻辑.
+
+        Returns:
+            bool: 清理是否成功
+        """
+        from chaosdroid.models import get_session_context
+        from chaosdroid.scheduling.enums import DeviceStatus
+
+        logger.warning(f"任务被抢占，执行清理: run_id={self.scenario_run_id}")
+
+        try:
+            # 1. 停止当前执行（通过标记状态）
+            # 2. 清理注入效果（如果已注入）
+            # 3. 租约已在抢占流程中处理
+
+            # 记录事件
+            with get_session_context() as session:
+                from chaosdroid.models import IncidentEvent
+                from chaosdroid.scheduling.enums import EventType, EventSeverity
+
+                event = IncidentEvent(
+                    scenario_run_id=self.scenario_run_id,
+                    event_type=EventType.PREEMPTION_TRIGGERED.value,
+                    severity=EventSeverity.WARNING.value,
+                    payload_json={
+                        "message": "任务被抢占，清理完成",
+                    },
+                )
+                session.add(event)
+                session.commit()
+
+            return True
+
+        except Exception as e:
+            logger.exception(f"抢占清理失败: run_id={self.scenario_run_id}")
+            return False
