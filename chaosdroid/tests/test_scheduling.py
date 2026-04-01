@@ -1179,7 +1179,7 @@ def test_pool_manager_invalid_purpose(db_session):
 # ==================== Scheduler Tests ====================
 
 
-async def test_scheduler_schedule_once(async_db_session):
+def test_scheduler_schedule_once(db_session):
     """Test Scheduler can allocate devices to queued runs.
 
     测试 Scheduler 能够为排队中的任务分配设备。
@@ -1199,8 +1199,8 @@ async def test_scheduler_schedule_once(async_db_session):
         )
         for i in range(3)
     ]
-    async_db_session.add_all(devices)
-    await async_db_session.flush()
+    db_session.add_all(devices)
+    db_session.flush()
 
     # 创建5个排队任务（比设备多）
     runs = [
@@ -1212,32 +1212,32 @@ async def test_scheduler_schedule_once(async_db_session):
         )
         for i in range(5)
     ]
-    async_db_session.add_all(runs)
-    await async_db_session.flush()
+    db_session.add_all(runs)
+    db_session.flush()
 
     # 创建调度器并执行一次调度
-    scheduler = Scheduler(async_db_session)
-    allocated_count = await scheduler.schedule_once()
+    scheduler = Scheduler(db_session)
+    allocated_count = scheduler.schedule_once()
 
     # 验证只有3个任务被分配（因为只有3个设备）
     assert allocated_count == 3
 
     # 验证已分配任务状态为 RESERVED
-    await async_db_session.refresh(runs[0])
-    await async_db_session.refresh(runs[1])
-    await async_db_session.refresh(runs[2])
+    db_session.refresh(runs[0])
+    db_session.refresh(runs[1])
+    db_session.refresh(runs[2])
     assert runs[0].status == RunStatus.RESERVED.value
     assert runs[1].status == RunStatus.RESERVED.value
     assert runs[2].status == RunStatus.RESERVED.value
 
     # 验证未分配任务仍为 QUEUED
-    await async_db_session.refresh(runs[3])
-    await async_db_session.refresh(runs[4])
+    db_session.refresh(runs[3])
+    db_session.refresh(runs[4])
     assert runs[3].status == RunStatus.QUEUED.value
     assert runs[4].status == RunStatus.QUEUED.value
 
 
-async def test_scheduler_priority_ordering(async_db_session):
+def test_scheduler_priority_ordering(db_session):
     """Test Scheduler processes runs in priority order.
 
     测试 Scheduler 按优先级顺序处理任务。
@@ -1254,8 +1254,8 @@ async def test_scheduler_priority_ordering(async_db_session):
         battery_level=80,
         health_score=90,
     )
-    async_db_session.add(device)
-    await async_db_session.flush()
+    db_session.add(device)
+    db_session.flush()
 
     # 创建3个不同优先级的任务：normal, high, emergency
     normal_run = ScenarioRun(
@@ -1276,20 +1276,20 @@ async def test_scheduler_priority_ordering(async_db_session):
         priority=Priority.EMERGENCY.value,
         interruptible=False,
     )
-    async_db_session.add_all([normal_run, high_run, emergency_run])
-    await async_db_session.flush()
+    db_session.add_all([normal_run, high_run, emergency_run])
+    db_session.flush()
 
     # 创建调度器并执行调度
-    scheduler = Scheduler(async_db_session)
-    allocated_count = await scheduler.schedule_once()
+    scheduler = Scheduler(db_session)
+    allocated_count = scheduler.schedule_once()
 
     # 验证只有1个任务被分配（只有1个设备）
     assert allocated_count == 1
 
     # 验证emergency任务被分配（优先级最高）
-    await async_db_session.refresh(emergency_run)
-    await async_db_session.refresh(high_run)
-    await async_db_session.refresh(normal_run)
+    db_session.refresh(emergency_run)
+    db_session.refresh(high_run)
+    db_session.refresh(normal_run)
 
     # emergency 应被分配
     assert emergency_run.status == RunStatus.RESERVED.value
@@ -1300,7 +1300,7 @@ async def test_scheduler_priority_ordering(async_db_session):
     assert normal_run.status == RunStatus.QUEUED.value
 
 
-async def test_scheduler_emergency_preemption(async_db_session):
+def test_scheduler_emergency_preemption(db_session):
     """Test Scheduler can preempt running tasks for emergency.
 
     测试 Scheduler 能够为紧急任务抢占正在运行的任务。
@@ -1319,8 +1319,8 @@ async def test_scheduler_emergency_preemption(async_db_session):
         battery_level=80,
         health_score=90,
     )
-    async_db_session.add(device)
-    await async_db_session.flush()
+    db_session.add(device)
+    db_session.flush()
 
     # 创建一个可抢占的任务（normal优先级，interruptible=True）
     normal_run = ScenarioRun(
@@ -1329,17 +1329,17 @@ async def test_scheduler_emergency_preemption(async_db_session):
         priority=Priority.NORMAL.value,
         interruptible=True,  # 可被抢占
     )
-    async_db_session.add(normal_run)
-    await async_db_session.flush()
+    db_session.add(normal_run)
+    db_session.flush()
 
     # 手动分配设备给normal任务（模拟已有运行任务）
-    lease_manager = LeaseManager(async_db_session)
-    lease = await lease_manager.create_lease(device, normal_run, preemptible=True)
+    lease_manager = LeaseManager(db_session)
+    lease = lease_manager.create_lease(device, normal_run, preemptible=True)
 
     # 验证设备已被分配
-    await async_db_session.refresh(device)
+    db_session.refresh(device)
     assert device.status == DeviceStatus.RESERVED.value
-    await async_db_session.refresh(normal_run)
+    db_session.refresh(normal_run)
     assert normal_run.status == RunStatus.RESERVED.value
 
     # 创建紧急任务
@@ -1349,32 +1349,32 @@ async def test_scheduler_emergency_preemption(async_db_session):
         priority=Priority.EMERGENCY.value,
         interruptible=False,
     )
-    async_db_session.add(emergency_run)
-    await async_db_session.flush()
+    db_session.add(emergency_run)
+    db_session.flush()
 
     # 执行调度（应该抢占normal任务）
-    scheduler = Scheduler(async_db_session)
-    allocated_count = await scheduler.schedule_once()
+    scheduler = Scheduler(db_session)
+    allocated_count = scheduler.schedule_once()
 
     # 验证emergency任务被分配
     assert allocated_count == 1
 
     # 验证emergency任务状态
-    await async_db_session.refresh(emergency_run)
+    db_session.refresh(emergency_run)
     assert emergency_run.status == RunStatus.RESERVED.value
     assert emergency_run.device_id == device.id
 
     # 验证normal任务被抢占
-    await async_db_session.refresh(normal_run)
+    db_session.refresh(normal_run)
     assert normal_run.status == RunStatus.PREEMPTED.value
     assert normal_run.preempted_by_run_id == emergency_run.id
 
     # 验证旧租约被抢占
-    await async_db_session.refresh(lease)
+    db_session.refresh(lease)
     assert lease.lease_status == LeaseStatus.PREEMPTED.value
 
 
-async def test_scheduler_get_scheduling_stats(async_db_session):
+def test_scheduler_get_scheduling_stats(db_session):
     """Test Scheduler can get scheduling statistics.
 
     测试 Scheduler 能够获取调度统计信息。
@@ -1394,8 +1394,8 @@ async def test_scheduler_get_scheduling_stats(async_db_session):
         )
         for i in range(2)
     ]
-    async_db_session.add_all(devices)
-    await async_db_session.flush()
+    db_session.add_all(devices)
+    db_session.flush()
 
     # 创建不同状态的任务
     queued_run = ScenarioRun(
@@ -1413,12 +1413,12 @@ async def test_scheduler_get_scheduling_stats(async_db_session):
         status=RunStatus.PREEMPTED.value,
         priority=Priority.NORMAL.value,
     )
-    async_db_session.add_all([queued_run, reserved_run, preempted_run])
-    await async_db_session.flush()
+    db_session.add_all([queued_run, reserved_run, preempted_run])
+    db_session.flush()
 
     # 获取统计信息
-    scheduler = Scheduler(async_db_session)
-    stats = await scheduler.get_scheduling_stats()
+    scheduler = Scheduler(db_session)
+    stats = scheduler.get_scheduling_stats()
 
     # 验证统计信息
     assert stats["queued_runs"] == 1
