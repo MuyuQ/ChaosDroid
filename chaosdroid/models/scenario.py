@@ -287,7 +287,7 @@ class ScenarioRun(Base, TimestampMixin):
         "DeviceLease",
         back_populates="scenario_run",
         cascade="all, delete-orphan",
-        foreign_keys="DeviceLease.scenario_run_id",
+        foreign_keys="[DeviceLease.scenario_run_id]",
     )
 
     def __repr__(self) -> str:

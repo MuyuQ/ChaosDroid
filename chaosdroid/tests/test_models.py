@@ -160,7 +160,7 @@ class TestRunStatusEnum:
 
     def test_all_status_values(self):
         """测试所有状态枚举值。"""
-        expected_values = ["queued", "preparing", "injecting", "validating", "recovering", "passed", "failed", "partial"]
+        expected_values = ["queued", "allocating", "reserved", "preparing", "injecting", "validating", "recovering", "passed", "failed", "partial", "preempted"]
         actual_values = [status.value for status in RunStatus]
         assert actual_values == expected_values
 
@@ -723,3 +723,73 @@ class TestModelRepr:
         repr_str = repr(artifact)
         assert "Artifact" in repr_str
         assert artifact.artifact_type in repr_str
+
+
+# ==================== 调度字段测试 ====================
+
+class TestScenarioTemplateSchedulingFields:
+    """测试 ScenarioTemplate 调度相关字段。"""
+
+    def test_scenario_template_scheduling_fields(self):
+        """测试 ScenarioTemplate 具有调度相关字段。"""
+        from chaosdroid.models.scenario import ScenarioTemplate
+
+        template = ScenarioTemplate(
+            name="test_template",
+            default_priority="high",
+            device_pool_id=1,
+            device_selector_json={"tags": ["stable"], "min_health": 60},
+            interruptible=True,
+            max_concurrent=3,
+        )
+
+        assert template.default_priority == "high"
+        assert template.device_pool_id == 1
+        assert template.device_selector_json["tags"] == ["stable"]
+        assert template.interruptible == True
+        assert template.max_concurrent == 3
+
+    async def test_scenario_template_scheduling_defaults(self, db_session):
+        """测试 ScenarioTemplate 调度字段默认值。"""
+        from chaosdroid.models.scenario import ScenarioTemplate
+
+        template = ScenarioTemplate(name="test")
+        db_session.add(template)
+        await db_session.flush()
+
+        assert template.default_priority == "normal"
+        assert template.interruptible == True
+        assert template.max_concurrent == 1
+
+
+class TestScenarioRunSchedulingFields:
+    """测试 ScenarioRun 调度相关字段。"""
+
+    def test_scenario_run_scheduling_fields(self):
+        """Test ScenarioRun has scheduling-related fields."""
+        from chaosdroid.models.scenario import ScenarioRun
+
+        run = ScenarioRun(
+            device_serial="auto",
+            priority="emergency",
+            device_pool_id=1,
+            device_id=5,
+            interruptible=False,
+        )
+
+        assert run.priority == "emergency"
+        assert run.device_pool_id == 1
+        assert run.device_id == 5
+        assert run.interruptible == False
+
+    async def test_scenario_run_scheduling_defaults(self, db_session):
+        """Test ScenarioRun scheduling field defaults."""
+        from chaosdroid.models.scenario import ScenarioRun
+
+        run = ScenarioRun(device_serial="auto")
+        db_session.add(run)
+        await db_session.flush()
+
+        assert run.priority == "normal"
+        assert run.interruptible == True
+        assert run.status == "queued"
