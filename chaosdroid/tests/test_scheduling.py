@@ -791,3 +791,357 @@ def test_quarantine_service_check_and_quarantine(db_session):
     assert failing_device1.status == DeviceStatus.QUARANTINED.value
     assert failing_device2.status == DeviceStatus.QUARANTINED.value
     assert already_quarantined.status == DeviceStatus.QUARANTINED.value
+
+
+# ==================== PoolManager Tests ====================
+
+def test_pool_manager_get_candidate_devices(db_session):
+    """Test PoolManager can get candidate devices.
+
+    测试 PoolManager 能够获取候选设备列表。
+    """
+    from chaosdroid.scheduling.pool_manager import PoolManager
+    from chaosdroid.models.device_pool import DevicePool
+    import json
+
+    # 创建设备池
+    pool = DevicePool(
+        name="test-pool-001",
+        purpose="stable",
+        reserved_emergency_ratio=0.2,
+        enabled=True,
+    )
+    db_session.add(pool)
+    db_session.flush()
+
+    # 创建设备：一些空闲，一些忙碌
+    idle_device1 = Device(
+        serial="idle-device-001",
+        status=DeviceStatus.IDLE.value,
+        health_score=80,
+        pool_id=pool.id,
+        tags_json=json.dumps(["android", "stable"]),
+    )
+    idle_device2 = Device(
+        serial="idle-device-002",
+        status=DeviceStatus.IDLE.value,
+        health_score=60,
+        pool_id=pool.id,
+        tags_json=json.dumps(["android"]),
+    )
+    busy_device = Device(
+        serial="busy-device-001",
+        status=DeviceStatus.BUSY.value,
+        health_score=90,
+        pool_id=pool.id,
+    )
+    offline_device = Device(
+        serial="offline-device-001",
+        status=DeviceStatus.OFFLINE.value,
+        health_score=50,
+        pool_id=pool.id,
+    )
+    low_health_device = Device(
+        serial="low-health-device-001",
+        status=DeviceStatus.IDLE.value,
+        health_score=30,  # 低于默认阈值40
+        pool_id=pool.id,
+    )
+    db_session.add_all([idle_device1, idle_device2, busy_device, offline_device, low_health_device])
+    db_session.commit()
+
+    # 创建 PoolManager
+    pool_manager = PoolManager(db_session)
+
+    # 获取候选设备
+    candidates = pool_manager.get_candidate_devices(pool_id=pool.id)
+
+    # 验证只有空闲且健康分满足要求的设备
+    assert len(candidates) == 2
+    candidate_serials = [d.serial for d in candidates]
+    assert "idle-device-001" in candidate_serials
+    assert "idle-device-002" in candidate_serials
+    assert "busy-device-001" not in candidate_serials
+    assert "offline-device-001" not in candidate_serials
+    assert "low-health-device-001" not in candidate_serials
+
+    # 测试标签过滤
+    tagged_candidates = pool_manager.get_candidate_devices(
+        pool_id=pool.id,
+        required_tags=["stable"],
+    )
+    assert len(tagged_candidates) == 1
+    assert tagged_candidates[0].serial == "idle-device-001"
+
+    # 测试健康分阈值
+    high_health_candidates = pool_manager.get_candidate_devices(
+        pool_id=pool.id,
+        min_health=70,
+    )
+    assert len(high_health_candidates) == 1
+    assert high_health_candidates[0].serial == "idle-device-001"
+
+
+def test_pool_manager_select_best_device(db_session):
+    """Test PoolManager selects device with highest health score.
+
+    测试 PoolManager 选择健康分最高的设备。
+    """
+    from chaosdroid.scheduling.pool_manager import PoolManager
+
+    # 创建测试设备（不存入数据库，仅测试排序逻辑）
+    device1 = Device(
+        serial="device-001",
+        status=DeviceStatus.IDLE.value,
+        health_score=90,
+        last_seen_at=datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc),
+    )
+    device2 = Device(
+        serial="device-002",
+        status=DeviceStatus.IDLE.value,
+        health_score=80,
+        last_seen_at=datetime(2024, 1, 1, 9, 0, tzinfo=timezone.utc),  # 更早 = 空闲更久
+    )
+    device3 = Device(
+        serial="device-003",
+        status=DeviceStatus.IDLE.value,
+        health_score=80,
+        last_seen_at=datetime(2024, 1, 1, 11, 0, tzinfo=timezone.utc),  # 更晚
+    )
+
+    # 创建 PoolManager
+    pool_manager = PoolManager(db_session)
+
+    # 测试选择最佳设备：健康分最高的
+    candidates = [device1, device2, device3]
+    best = pool_manager.select_best_device(candidates)
+    assert best.serial == "device-001"  # 健康分最高
+
+    # 测试相同健康分时选择空闲时间最长的
+    candidates2 = [device2, device3]
+    best2 = pool_manager.select_best_device(candidates2)
+    assert best2.serial == "device-002"  # 健康分相同，但空闲更久
+
+    # 测试空列表
+    best3 = pool_manager.select_best_device([])
+    assert best3 is None
+
+
+def test_pool_manager_get_available_capacity(db_session):
+    """Test PoolManager calculates available capacity correctly.
+
+    测试 PoolManager 正确计算可用容量。
+    """
+    from chaosdroid.scheduling.pool_manager import PoolManager
+    from chaosdroid.models.device_pool import DevicePool
+
+    # 创建设备池（预留比例 0.2）
+    pool = DevicePool(
+        name="capacity-test-pool",
+        purpose="stress",
+        reserved_emergency_ratio=0.2,
+        enabled=True,
+    )
+    db_session.add(pool)
+    db_session.flush()
+
+    # 创建设备：3个空闲，2个忙碌
+    for i in range(3):
+        device = Device(
+            serial=f"capacity-idle-{i}",
+            status=DeviceStatus.IDLE.value,
+            health_score=80,
+            pool_id=pool.id,
+        )
+        db_session.add(device)
+
+    for i in range(2):
+        device = Device(
+            serial=f"capacity-busy-{i}",
+            status=DeviceStatus.BUSY.value,
+            health_score=80,
+            pool_id=pool.id,
+        )
+        db_session.add(device)
+
+    db_session.commit()
+
+    # 创建 PoolManager
+    pool_manager = PoolManager(db_session)
+
+    # 计算可用容量
+    # 总设备数 = 5，预留比例 = 0.2，预留设备 = 1
+    # 空闲设备数 = 3，可用容量 = 3 - 1 = 2
+    capacity = pool_manager.get_available_capacity(pool)
+    assert capacity == 2
+
+
+def test_pool_manager_create_and_get_pool(db_session):
+    """Test PoolManager can create and retrieve pools.
+
+    测试 PoolManager 能够创建和查询设备池。
+    """
+    from chaosdroid.scheduling.pool_manager import PoolManager
+    from chaosdroid.scheduling.enums import DevicePoolPurpose
+
+    # 创建 PoolManager
+    pool_manager = PoolManager(db_session)
+
+    # 创建设备池
+    pool = pool_manager.create_pool(
+        name="create-test-pool",
+        purpose=DevicePoolPurpose.STABLE.value,
+        reserved_emergency_ratio=0.15,
+        max_parallel_jobs=10,
+        enabled=True,
+    )
+    db_session.commit()
+
+    # 验证设备池已创建
+    assert pool.id is not None
+    assert pool.name == "create-test-pool"
+    assert pool.purpose == "stable"
+    assert pool.reserved_emergency_ratio == 0.15
+    assert pool.max_parallel_jobs == 10
+    assert pool.enabled == True
+
+    # 通过ID获取设备池
+    retrieved_pool = pool_manager.get_pool(pool.id)
+    assert retrieved_pool is not None
+    assert retrieved_pool.name == "create-test-pool"
+
+    # 通过名称获取设备池
+    retrieved_pool2 = pool_manager.get_pool_by_name("create-test-pool")
+    assert retrieved_pool2 is not None
+    assert retrieved_pool2.id == pool.id
+
+
+def test_pool_manager_list_pools(db_session):
+    """Test PoolManager can list pools.
+
+    测试 PoolManager 能够列出设备池。
+    """
+    from chaosdroid.scheduling.pool_manager import PoolManager
+    from chaosdroid.scheduling.enums import DevicePoolPurpose
+
+    # 创建 PoolManager
+    pool_manager = PoolManager(db_session)
+
+    # 创建多个设备池
+    pool1 = pool_manager.create_pool(
+        name="list-pool-1",
+        purpose=DevicePoolPurpose.STABLE.value,
+        enabled=True,
+    )
+    pool2 = pool_manager.create_pool(
+        name="list-pool-2",
+        purpose=DevicePoolPurpose.STRESS.value,
+        enabled=True,
+    )
+    pool3 = pool_manager.create_pool(
+        name="list-pool-3",
+        purpose=DevicePoolPurpose.EMERGENCY.value,
+        enabled=False,  # 禁用
+    )
+    db_session.commit()
+
+    # 列出启用的设备池
+    enabled_pools = pool_manager.list_pools(enabled_only=True)
+    assert len(enabled_pools) == 2
+    pool_names = [p.name for p in enabled_pools]
+    assert "list-pool-1" in pool_names
+    assert "list-pool-2" in pool_names
+    assert "list-pool-3" not in pool_names
+
+    # 列出所有设备池
+    all_pools = pool_manager.list_pools(enabled_only=False)
+    assert len(all_pools) >= 3
+
+
+def test_pool_manager_update_pool(db_session):
+    """Test PoolManager can update pools.
+
+    测试 PoolManager 能够更新设备池。
+    """
+    from chaosdroid.scheduling.pool_manager import PoolManager
+    from chaosdroid.scheduling.enums import DevicePoolPurpose
+
+    # 创建 PoolManager
+    pool_manager = PoolManager(db_session)
+
+    # 创建设备池
+    pool = pool_manager.create_pool(
+        name="update-test-pool",
+        purpose=DevicePoolPurpose.STABLE.value,
+        reserved_emergency_ratio=0.2,
+        enabled=True,
+    )
+    db_session.commit()
+
+    # 更新设备池
+    updated_pool = pool_manager.update_pool(
+        pool_id=pool.id,
+        reserved_emergency_ratio=0.3,
+        enabled=False,
+    )
+    db_session.commit()
+
+    # 验证更新成功
+    assert updated_pool is not None
+    assert updated_pool.reserved_emergency_ratio == 0.3
+    assert updated_pool.enabled == False
+
+
+def test_pool_manager_delete_pool(db_session):
+    """Test PoolManager can delete pools.
+
+    测试 PoolManager 能够删除设备池。
+    """
+    from chaosdroid.scheduling.pool_manager import PoolManager
+    from chaosdroid.scheduling.enums import DevicePoolPurpose
+
+    # 创建 PoolManager
+    pool_manager = PoolManager(db_session)
+
+    # 创建设备池
+    pool = pool_manager.create_pool(
+        name="delete-test-pool",
+        purpose=DevicePoolPurpose.STABLE.value,
+    )
+    db_session.commit()
+    pool_id = pool.id
+
+    # 删除设备池
+    result = pool_manager.delete_pool(pool_id)
+    db_session.commit()
+
+    # 验证删除成功
+    assert result == True
+
+    # 验证设备池已不存在
+    retrieved_pool = pool_manager.get_pool(pool_id)
+    assert retrieved_pool is None
+
+    # 删除不存在的设备池
+    result2 = pool_manager.delete_pool(pool_id)
+    assert result2 == False
+
+
+def test_pool_manager_invalid_purpose(db_session):
+    """Test PoolManager rejects invalid purpose value.
+
+    测试 PoolManager 拒绝无效的 purpose 值。
+    """
+    from chaosdroid.scheduling.pool_manager import PoolManager
+
+    # 创建 PoolManager
+    pool_manager = PoolManager(db_session)
+
+    # 尝试创建无效 purpose 的设备池
+    with pytest.raises(ValueError) as exc_info:
+        pool_manager.create_pool(
+            name="invalid-purpose-pool",
+            purpose="invalid_purpose",
+        )
+
+    assert "无效的purpose值" in str(exc_info.value)
