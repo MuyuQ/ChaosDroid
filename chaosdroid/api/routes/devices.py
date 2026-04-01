@@ -447,3 +447,145 @@ async def execute_shell_command(
             success=False,
             error={"code": "internal_error", "message": str(e)}
         )
+
+
+# ==================== 调度相关端点 ====================
+
+@router.post("/sync", response_model=ApiResponse)
+async def sync_devices():
+    """同步设备状态（触发设备健康检查和隔离判定）."""
+    try:
+        from chaosdroid.models import get_session_context
+        from chaosdroid.scheduling import DeviceSyncService
+
+        with get_session_context() as session:
+            sync_service = DeviceSyncService(session)
+            await sync_service.check_and_quarantine()
+
+            return ApiResponse(
+                success=True,
+                data={"message": "设备同步完成"}
+            )
+
+    except Exception as e:
+        return ApiResponse(
+            success=False,
+            error={"code": "internal_error", "message": str(e)}
+        )
+
+
+@router.post("/{device_id}/recover", response_model=ApiResponse)
+async def recover_device(
+    device_id: int = Path(..., ge=1, description="设备ID"),
+):
+    """恢复隔离设备."""
+    try:
+        from chaosdroid.models import get_session_context, Device
+        from chaosdroid.scheduling import QuarantineService
+
+        with get_session_context() as session:
+            device = session.get(Device, device_id)
+            if not device:
+                return ApiResponse(
+                    success=False,
+                    error={"code": "not_found", "message": f"设备不存在: {device_id}"}
+                )
+
+            quarantine_service = QuarantineService(session)
+            success = quarantine_service.recover_device(device)
+
+            if not success:
+                return ApiResponse(
+                    success=False,
+                    error={"code": "invalid_state", "message": "设备未处于隔离状态"}
+                )
+
+            return ApiResponse(
+                success=True,
+                data={
+                    "device_id": device_id,
+                    "serial": device.serial,
+                    "status": device.status,
+                    "message": "设备已恢复"
+                }
+            )
+
+    except Exception as e:
+        return ApiResponse(
+            success=False,
+            error={"code": "internal_error", "message": str(e)}
+        )
+
+
+@router.post("/{device_id}/quarantine", response_model=ApiResponse)
+async def quarantine_device(
+    device_id: int = Path(..., ge=1, description="设备ID"),
+    reason: str = Query("手动隔离", description="隔离原因"),
+):
+    """手动隔离设备."""
+    try:
+        from chaosdroid.models import get_session_context, Device
+        from chaosdroid.scheduling import QuarantineService
+
+        with get_session_context() as session:
+            device = session.get(Device, device_id)
+            if not device:
+                return ApiResponse(
+                    success=False,
+                    error={"code": "not_found", "message": f"设备不存在: {device_id}"}
+                )
+
+            quarantine_service = QuarantineService(session)
+            quarantine_service.quarantine_device(device, reason)
+
+            return ApiResponse(
+                success=True,
+                data={
+                    "device_id": device_id,
+                    "serial": device.serial,
+                    "status": device.status,
+                    "quarantine_reason": reason,
+                    "message": "设备已隔离"
+                }
+            )
+
+    except Exception as e:
+        return ApiResponse(
+            success=False,
+            error={"code": "internal_error", "message": str(e)}
+        )
+
+
+@router.get("/quarantined", response_model=ApiResponse)
+async def list_quarantined_devices():
+    """获取隔离设备列表."""
+    try:
+        from chaosdroid.models import get_session_context
+        from chaosdroid.scheduling import QuarantineService
+
+        with get_session_context() as session:
+            quarantine_service = QuarantineService(session)
+            devices = quarantine_service.get_quarantined()
+
+            return ApiResponse(
+                success=True,
+                data={
+                    "devices": [
+                        {
+                            "id": d.id,
+                            "serial": d.serial,
+                            "status": d.status,
+                            "quarantine_reason": d.quarantine_reason,
+                            "health_score": d.health_score,
+                        }
+                        for d in devices
+                    ],
+                    "total": len(devices),
+                }
+            )
+
+    except Exception as e:
+        return ApiResponse(
+            success=False,
+            error={"code": "internal_error", "message": str(e)}
+        )

@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from chaosdroid.api.routes import scenarios, runs, reports, devices, profiles, web
+from chaosdroid.api.routes import scenarios, runs, reports, devices, profiles, web, pools
 from chaosdroid.config.settings import get_settings
 from chaosdroid.models.database import init_engine, create_tables
 
@@ -37,6 +37,7 @@ def create_app() -> FastAPI:
     app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
     app.include_router(devices.router, prefix="/api/devices", tags=["devices"])
     app.include_router(profiles.router, prefix="/api/profiles", tags=["profiles"])
+    app.include_router(pools.router, prefix="/api/pools", tags=["pools"])
 
     # 注册Web页面路由
     app.include_router(web.router, tags=["web"])
