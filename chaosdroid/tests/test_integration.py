@@ -351,3 +351,269 @@ class TestAPIEndpoints:
         # 列表
         runs = await list_runs(RunFilters())
         assert len(runs) > 0
+
+
+# ==================== 端到端集成测试 ====================
+
+class TestEndToEndScenarios:
+    """端到端集成测试，测试完整场景流程."""
+
+    @pytest.mark.asyncio
+    async def test_end_to_end_mock_storage_pressure(self, db_engine):
+        """测试 Mock 模式下存储压力注入的完整流程.
+
+        验证：
+        1. 创建故障配置、验证配置、恢复配置
+        2. 创建场景模板和执行记录
+        3. 执行场景并验证状态流转
+        4. 验证步骤记录和报告生成
+        """
+        from chaosdroid.services.execution_service import ExecutionService
+        from sqlalchemy import select
+
+        # 1. 创建配置
+        fault_profile = FaultProfile(
+            name="存储压力测试",
+            fault_type="storage_pressure",
+            parameters={"pressure_mb": 500},
+            safe_cleanup_required=True,
+            risk_level="medium",
+            is_active=True,
+        )
+
+        validation_profile = ValidationProfile(
+            name="基础验证",
+            checks_json=json.dumps(["boot_completed", "battery_ok"]),
+            timeout_sec=180,
+        )
+
+        recovery_profile = RecoveryProfile(
+            name="标准恢复",
+            steps_json=json.dumps([{"action": "cleanup_storage"}]),
+            manual_intervention_allowed=True,
+            timeout_sec=300,
+        )
+
+        async with get_session_context() as session:
+            session.add(fault_profile)
+            session.add(validation_profile)
+            session.add(recovery_profile)
+            await session.flush()
+
+            # 2. 创建场景模板
+            scenario = ScenarioTemplate(
+                name="存储压力测试场景",
+                description="测试存储压力注入的完整流程",
+                target_type="stability",
+                fault_profile_id=fault_profile.id,
+                validation_profile_id=validation_profile.id,
+                recovery_profile_id=recovery_profile.id,
+                inject_stage="precheck",
+                executor_mode="mock",
+                enabled=True,
+            )
+            session.add(scenario)
+            await session.flush()
+
+            # 3. 创建执行记录
+            run = ScenarioRun(
+                scenario_template_id=scenario.id,
+                device_serial="test_device_e2e_001",
+                status=RunStatus.QUEUED.value,
+                inject_stage="precheck",
+            )
+            session.add(run)
+            await session.flush()
+            run_id = run.id
+
+        # 4. 执行场景
+        execution_service = ExecutionService()
+        final_status = await execution_service.execute_scenario(run_id)
+
+        # 5. 验证结果
+        async with get_session_context() as session:
+            result = await session.execute(
+                select(ScenarioRun).where(ScenarioRun.id == run_id)
+            )
+            completed_run = result.scalar_one()
+
+            # 验证执行状态
+            assert completed_run.status == final_status.value
+            assert completed_run.started_at is not None
+            assert completed_run.finished_at is not None
+
+            # 验证步骤记录
+            steps_result = await session.execute(
+                select(ScenarioStep)
+                .where(ScenarioStep.scenario_run_id == run_id)
+                .order_by(ScenarioStep.step_order)
+            )
+            steps = steps_result.scalars().all()
+            assert len(steps) > 0
+            step_types = [s.step_type for s in steps]
+            assert "precheck" in step_types
+
+    @pytest.mark.asyncio
+    async def test_end_to_end_device_pool_scheduling(self, db_engine):
+        """测试设备池调度的完整流程.
+
+        验证：
+        1. 创建设备池和多个设备
+        2. 创建设备租赁
+        3. 验证设备状态和租赁状态
+        4. 验证设备分配逻辑
+        """
+        from chaosdroid.models.device_pool import DevicePool
+        from chaosdroid.models.device_lease import DeviceLease
+        from sqlalchemy import select
+
+        async with get_session_context() as session:
+            # 1. 创建设备池
+            pool = DevicePool(
+                name="测试设备池",
+                purpose="test",
+                reserved_emergency_ratio=0.2,
+                max_parallel_jobs=10,
+                enabled=True,
+            )
+            session.add(pool)
+            await session.flush()
+
+            # 2. 创建多个设备
+            devices = [
+                Device(
+                    serial=f"device_pool_{i:03d}",
+                    model="Pixel 7",
+                    brand="Google",
+                    status="available" if i % 2 == 0 else "busy",
+                    pool_id=pool.id,
+                    is_active=True,
+                )
+                for i in range(4)
+            ]
+            for device in devices:
+                session.add(device)
+            await session.flush()
+
+            # 3. 创建设备租赁
+            lease = DeviceLease(
+                device_id=devices[0].id,
+                worker_id="worker_test_001",
+                status="active",
+                expires_at=datetime.utcnow() + timedelta(hours=1),
+            )
+            session.add(lease)
+            await session.flush()
+
+            # 4. 验证设备池和设备
+            pool_result = await session.execute(
+                select(DevicePool).where(DevicePool.id == pool.id)
+            )
+            loaded_pool = pool_result.scalar_one()
+            assert loaded_pool.name == "测试设备池"
+            assert loaded_pool.enabled
+
+            # 5. 验证设备
+            devices_result = await session.execute(
+                select(Device).where(Device.pool_id == pool.id)
+            )
+            pool_devices = devices_result.scalars().all()
+            assert len(pool_devices) == 4
+
+            available_count = sum(1 for d in pool_devices if d.status == "available")
+            assert available_count == 2  # 一半设备可用
+
+            # 6. 验证租赁记录
+            lease_result = await session.execute(
+                select(DeviceLease).where(DeviceLease.device_id == devices[0].id)
+            )
+            loaded_lease = lease_result.scalar_one()
+            assert loaded_lease.status == "active"
+            assert loaded_lease.worker_id == "worker_test_001"
+
+    @pytest.mark.asyncio
+    async def test_end_to_end_scenario_with_factories(self, db_engine):
+        """使用工厂类测试完整场景流程.
+
+        验证：
+        1. 使用工厂类快速创建测试数据
+        2. 执行场景并验证结果
+        3. 验证工厂类生成的数据有效性
+        """
+        from chaosdroid.tests.factories import (
+            ScenarioFactory,
+            FaultProfileFactory,
+            DeviceFactory,
+        )
+        from chaosdroid.services.execution_service import ExecutionService
+        from sqlalchemy import select
+
+        # 1. 使用工厂创建配置
+        fault_profile = FaultProfileFactory.create(
+            name="Factory Test Fault",
+            fault_type=FaultType.storage_pressure,
+            parameters={"pressure_mb": 250},
+        )
+
+        async with get_session_context() as session:
+            session.add(fault_profile)
+            await session.flush()
+            fault_profile_id = fault_profile.id
+
+            # 2. 使用工厂创建设备
+            device = DeviceFactory.create(
+                serial="factory_test_device",
+                model="Pixel 7",
+                status=DeviceStatus.available,
+            )
+            session.add(device)
+            await session.flush()
+
+            # 3. 创建场景模板
+            scenario = ScenarioTemplate(
+                name="Factory Test Scenario",
+                description="使用工厂类创建的测试场景",
+                target_type="stability",
+                fault_profile_id=fault_profile_id,
+                validation_profile_id=1,
+                recovery_profile_id=1,
+                inject_stage="precheck",
+                executor_mode="mock",
+                enabled=True,
+            )
+            session.add(scenario)
+            await session.flush()
+
+            # 4. 创建执行记录
+            run = ScenarioRun(
+                scenario_template_id=scenario.id,
+                device_serial=device.serial,
+                status=RunStatus.QUEUED.value,
+                inject_stage="precheck",
+            )
+            session.add(run)
+            await session.flush()
+            run_id = run.id
+
+        # 5. 执行场景
+        execution_service = ExecutionService()
+        final_status = await execution_service.execute_scenario(run_id)
+
+        # 6. 验证结果
+        async with get_session_context() as session:
+            result = await session.execute(
+                select(ScenarioRun).where(ScenarioRun.id == run_id)
+            )
+            completed_run = result.scalar_one()
+
+            assert completed_run.device_serial == "factory_test_device"
+            assert completed_run.status == final_status.value
+            assert completed_run.finished_at is not None
+
+            # 验证步骤
+            steps_result = await session.execute(
+                select(ScenarioStep)
+                .where(ScenarioStep.scenario_run_id == run_id)
+            )
+            steps = steps_result.scalars().all()
+            assert len(steps) > 0

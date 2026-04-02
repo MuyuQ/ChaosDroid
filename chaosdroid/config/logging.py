@@ -4,9 +4,18 @@
 - 控制台输出
 - 文件输出（按日期滚动）
 - 可配置的日志级别
+- 支持从配置文件或环境变量加载日志格式
+
+环境变量支持:
+- CHAOSDROID_LOG_FORMAT: 日志格式类型 (text/json)
+- CHAOSDROID_LOG_FORMAT_STRING: 自定义日志格式字符串
+- CHAOSDROID_LOG_DATE_FORMAT: 自定义日期格式字符串
+- CHAOSDROID_LOG_FILE: 自定义日志文件路径
+- CHAOSDROID_LOG_BACKUP_COUNT: 日志备份天数
 """
 
 import logging
+import os
 import sys
 from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
@@ -16,9 +25,9 @@ from typing import Optional
 from .settings import get_settings
 
 
-# 日志格式
-LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
-DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+# 默认日志格式
+DEFAULT_LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
+DEFAULT_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 # 日志目录
 LOG_DIR = Path("logs")
@@ -34,11 +43,48 @@ LOG_LEVELS = {
 }
 
 
+def load_log_format_from_env() -> tuple[str, str]:
+    """从环境变量加载日志格式。
+
+    Returns:
+        tuple[str, str]: (日志格式字符串，日期格式字符串)
+    """
+    log_format_string = os.environ.get("CHAOSDROID_LOG_FORMAT_STRING", DEFAULT_LOG_FORMAT)
+    date_format = os.environ.get("CHAOSDROID_LOG_DATE_FORMAT", DEFAULT_DATE_FORMAT)
+    return log_format_string, date_format
+
+
+def load_log_file_from_env() -> Path:
+    """从环境变量加载日志文件路径。
+
+    Returns:
+        Path: 日志文件路径
+    """
+    log_file_path = os.environ.get("CHAOSDROID_LOG_FILE")
+    if log_file_path:
+        return Path(log_file_path)
+    return LOG_FILE
+
+
+def load_log_backup_count_from_env() -> int:
+    """从环境变量加载日志备份天数。
+
+    Returns:
+        int: 备份天数
+    """
+    try:
+        return int(os.environ.get("CHAOSDROID_LOG_BACKUP_COUNT", "30"))
+    except ValueError:
+        return 30
+
+
 def setup_logging(
     level: Optional[str] = None,
     log_file: Optional[Path] = None,
     enable_console: bool = True,
     enable_file: bool = True,
+    log_format: Optional[str] = None,
+    date_format: Optional[str] = None,
 ) -> logging.Logger:
     """配置应用日志。
 
@@ -47,6 +93,8 @@ def setup_logging(
         log_file: 日志文件路径，如果未指定则使用默认路径
         enable_console: 是否启用控制台输出
         enable_file: 是否启用文件输出
+        log_format: 日志格式字符串，如果未指定则从环境变量或默认值加载
+        date_format: 日期格式字符串，如果未指定则从环境变量或默认值加载
 
     Returns:
         logging.Logger: 配置好的根日志器
@@ -59,13 +107,26 @@ def setup_logging(
     # 验证日志级别
     if log_level not in LOG_LEVELS:
         raise ValueError(
-            f"无效的日志级别: {log_level}，有效值为: {', '.join(LOG_LEVELS.keys())}"
+            f"无效的日志级别：{log_level}，有效值为：{', '.join(LOG_LEVELS.keys())}"
         )
+
+    # 从环境变量加载日志格式（如果参数未指定）
+    if log_format is None or date_format is None:
+        env_log_format, env_date_format = load_log_format_from_env()
+        if log_format is None:
+            log_format = env_log_format
+        if date_format is None:
+            date_format = env_date_format
+
+    # 从环境变量加载日志文件路径（如果参数未指定）
+    if log_file is None:
+        log_file = load_log_file_from_env()
+
+    # 从环境变量加载备份天数
+    backup_count = load_log_backup_count_from_env()
 
     # 确保日志目录存在
     if enable_file:
-        if log_file is None:
-            log_file = LOG_FILE
         log_file.parent.mkdir(parents=True, exist_ok=True)
 
     # 获取根日志器
@@ -76,7 +137,7 @@ def setup_logging(
     root_logger.handlers.clear()
 
     # 创建格式器
-    formatter = logging.Formatter(LOG_FORMAT, datefmt=DATE_FORMAT)
+    formatter = logging.Formatter(log_format, datefmt=date_format)
 
     # 添加控制台处理器
     if enable_console:
@@ -90,8 +151,8 @@ def setup_logging(
         file_handler = TimedRotatingFileHandler(
             filename=str(log_file),
             when="midnight",  # 每天午夜滚动
-            interval=1,  # 间隔1天
-            backupCount=30,  # 保留30天的日志
+            interval=1,  # 间隔 1 天
+            backupCount=backup_count,  # 保留指定天数的日志
             encoding="utf-8",
         )
         file_handler.setLevel(LOG_LEVELS[log_level])
@@ -137,14 +198,14 @@ def log_startup_info(logger: logging.Logger) -> None:
     logger.info("ChaosDroid 启动")
     logger.info("=" * 60)
     logger.info("配置信息:")
-    logger.info(f"  数据库路径: {settings.database_path}")
-    logger.info(f"  产物目录: {settings.artifacts_dir}")
-    logger.info(f"  报告目录: {settings.reports_dir}")
-    logger.info(f"  ADB 路径: {settings.adb_path}")
-    logger.info(f"  默认超时: {settings.default_timeout} 秒")
-    logger.info(f"  Web 端口: {settings.web_port}")
-    logger.info(f"  日志级别: {settings.log_level}")
-    logger.info(f"  危险操作确认: {settings.dangerous_operations_require_confirm}")
+    logger.info(f"  数据库路径：{settings.database_path}")
+    logger.info(f"  产物目录：{settings.artifacts_dir}")
+    logger.info(f"  报告目录：{settings.reports_dir}")
+    logger.info(f"  ADB 路径：{settings.adb_path}")
+    logger.info(f"  默认超时：{settings.default_timeout} 秒")
+    logger.info(f"  Web 端口：{settings.web_port}")
+    logger.info(f"  日志级别：{settings.log_level}")
+    logger.info(f"  危险操作确认：{settings.dangerous_operations_require_confirm}")
     logger.info("=" * 60)
 
 

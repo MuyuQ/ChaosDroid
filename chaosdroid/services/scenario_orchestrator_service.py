@@ -1,13 +1,11 @@
-"""场景执行服务模块（重构版）.
+"""场景编排服务模块.
 
 提供场景执行的完整编排逻辑，负责协调执行器、注入器、验证器和恢复策略。
-此版本已拆分为更小的服务类，本模块作为兼容层保留原有接口。
 """
 import asyncio
 import json
 import logging
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, Optional
 
 from sqlalchemy import select
@@ -16,7 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from chaosdroid.config.settings import get_settings
 from chaosdroid.executors.base import BaseDeviceExecutor, ExecutorMode
 from chaosdroid.executors.mock_executor import MockDeviceExecutor, MockScenario
-from chaosdroid.injectors.base import BaseInjector, get_injector, InjectContext, InjectResult
 from chaosdroid.models import (
     Artifact,
     FaultProfile,
@@ -39,7 +36,6 @@ from chaosdroid.services.device_lock_manager import (
     get_device_lock_manager,
 )
 from chaosdroid.services.report_generator import ReportData, ReportGenerator
-from chaosdroid.services.recovery_service import RecoveryService
 from chaosdroid.validators.base import (
     BaseValidator,
     DefaultValidator,
@@ -52,17 +48,16 @@ from chaosdroid.validators.base import (
 logger = logging.getLogger(__name__)
 
 
-class ExecutionService:
-    """场景执行服务（重构版）.
+class ScenarioOrchestratorService:
+    """场景编排服务.
 
-    此类别保留了原有的接口以保持向后兼容，但内部实现已委托给拆分后的服务：
-    - ScenarioOrchestratorService: 编排执行流程
-    - InjectorDispatchService: 注入器选择和调用
-    - ValidationService: 验证逻辑
-    - RecoveryService: 恢复逻辑
-    - ObservationService: 观测数据采集
-
-    注意：为了保持测试兼容性，本类保留了原有的私有方法。
+    负责完整的场景执行流程编排，包括：
+    - 设备锁定防止并发执行
+    - 设置执行器（real/mock）
+    - 协调注入器、验证器、恢复服务
+    - 执行状态机
+    - 生成报告
+    - 超时处理
     """
 
     # 默认各阶段超时配置（秒）
@@ -81,7 +76,7 @@ class ExecutionService:
         recovery_timeout: int = DEFAULT_RECOVERY_TIMEOUT,
         collect_timeout: int = DEFAULT_COLLECT_TIMEOUT,
     ):
-        """初始化执行服务.
+        """初始化编排服务.
 
         Args:
             device_lock_manager: 设备锁管理器实例
@@ -92,7 +87,6 @@ class ExecutionService:
             collect_timeout: 收集阶段超时（秒）
         """
         self.settings = get_settings()
-        self._validator_registry: Dict[str, BaseValidator] = {}
         self._device_lock_manager = device_lock_manager or get_device_lock_manager()
         self._timeout_config = {
             "prepare": prepare_timeout,
@@ -102,13 +96,24 @@ class ExecutionService:
             "collect": collect_timeout,
         }
 
-    async def execute_scenario(self, scenario_run_id: int) -> RunStatus:
+    async def execute_scenario(
+        self,
+        scenario_run_id: int,
+        injector_service: Any,
+        validation_service: Any,
+        recovery_service: Any,
+        observation_service: Any,
+    ) -> RunStatus:
         """执行场景的完整流程.
 
         包含设备锁定机制，防止同一设备的并发执行。
 
         Args:
             scenario_run_id: 场景执行记录 ID
+            injector_service: 注入器分发服务实例
+            validation_service: 验证服务实例
+            recovery_service: 恢复服务实例
+            observation_service: 观测服务实例
 
         Returns:
             最终执行状态
@@ -122,6 +127,7 @@ class ExecutionService:
                 logger.error(f"找不到执行记录 run_id={scenario_run_id}")
                 return RunStatus.FAILED
 
+            # 获取场景模板
             scenario_template = await self._get_scenario_template(
                 session, scenario_run.scenario_template_id
             )
@@ -129,6 +135,7 @@ class ExecutionService:
                 logger.error(f"找不到场景模板 template_id={scenario_run.scenario_template_id}")
                 return RunStatus.FAILED
 
+            # 获取关联的配置
             fault_profile = await self._get_fault_profile(
                 session, scenario_template.fault_profile_id
             )
@@ -160,9 +167,11 @@ class ExecutionService:
             return RunStatus.FAILED
 
         try:
+            # 创建 artifacts 目录
             artifacts_dir = self.settings.get_artifacts_dir() / str(scenario_run_id)
             artifacts_dir.mkdir(parents=True, exist_ok=True)
 
+            # 设置执行上下文
             context = self._build_execution_context(
                 scenario_run=scenario_run,
                 scenario_template=scenario_template,
@@ -172,6 +181,7 @@ class ExecutionService:
                 artifacts_dir=artifacts_dir,
             )
 
+            # 设置执行器
             executor = self._setup_executor(
                 mode=scenario_template.executor_mode,
                 device_serial=device_serial,
@@ -179,32 +189,37 @@ class ExecutionService:
             )
             context["executor"] = executor
 
-            injector = self._setup_injector(
+            # 设置注入器
+            injector = await injector_service.setup_injector(
                 fault_profile=fault_profile,
                 context=context,
             )
             context["injector"] = injector
 
-            validator = self._setup_validator(
+            # 设置验证器
+            validator = await validation_service.setup_validator(
                 validation_profile=validation_profile,
                 context=context,
             )
             context["validator"] = validator
 
-            recovery_service = self._setup_recovery(
-                recovery_profile=recovery_profile,
-                context=context,
-            )
+            # 设置恢复策略
             context["recovery_service"] = recovery_service
 
+            # 创建观测采集器
             observation_collector = ObservationCollector(scenario_run_id)
             context["observation_collector"] = observation_collector
 
+            # 执行流程
             final_status = await self._run_execution_flow(
                 scenario_run_id=scenario_run_id,
                 context=context,
+                injector_service=injector_service,
+                validation_service=validation_service,
+                observation_service=observation_service,
             )
 
+            # 生成报告
             await self._generate_report(
                 scenario_run_id=scenario_run_id,
                 context=context,
@@ -215,13 +230,12 @@ class ExecutionService:
             return final_status
 
         finally:
+            # ===== 释放设备锁 =====
             await self._device_lock_manager.release_lock(
                 device_serial=device_serial,
                 scenario_run_id=scenario_run_id,
             )
             logger.info(f"设备锁已释放：device={device_serial}, run_id={scenario_run_id}")
-
-    # ==================== 数据库访问方法（保持兼容） ====================
 
     async def _get_scenario_run(
         self, session: AsyncSession, scenario_run_id: int
@@ -304,8 +318,6 @@ class ExecutionService:
             "timeout_sec": profile.timeout_sec,
         }
 
-    # ==================== 设置方法（保持兼容） ====================
-
     def _build_execution_context(
         self,
         scenario_run: ScenarioRun,
@@ -350,45 +362,13 @@ class ExecutionService:
             logger.info(f"使用真实设备执行器 serial={device_serial}")
         return executor
 
-    def _setup_injector(
-        self, fault_profile: Optional[Dict[str, Any]], context: Dict[str, Any]
-    ) -> Optional[BaseInjector]:
-        """设置注入器."""
-        if fault_profile is None:
-            logger.warning("没有故障配置，跳过注入")
-            return None
-
-        fault_type = fault_profile.get("fault_type")
-        injector = get_injector(fault_type)
-
-        if injector is None:
-            logger.warning(f"找不到注入器 fault_type={fault_type}")
-        else:
-            logger.info(f"设置注入器 fault_type={fault_type}")
-
-        return injector
-
-    def _setup_validator(
-        self, validation_profile: Optional[Dict[str, Any]], context: Dict[str, Any]
-    ) -> BaseValidator:
-        """设置验证器."""
-        checks_config = validation_profile and validation_profile.get("checks", {}) or {}
-        validator = DefaultValidator(checks_config)
-        logger.info("设置默认验证器")
-        return validator
-
-    def _setup_recovery(
-        self, recovery_profile: Optional[Dict[str, Any]], context: Dict[str, Any]
-    ) -> RecoveryService:
-        """设置恢复策略."""
-        recovery_service = RecoveryService(recovery_profile)
-        logger.info("设置恢复服务")
-        return recovery_service
-
-    # ==================== 执行流程方法（保持兼容） ====================
-
     async def _run_execution_flow(
-        self, scenario_run_id: int, context: Dict[str, Any]
+        self,
+        scenario_run_id: int,
+        context: Dict[str, Any],
+        injector_service: Any,
+        validation_service: Any,
+        observation_service: Any,
     ) -> RunStatus:
         """执行完整的流程."""
         executor = context["executor"]
@@ -397,10 +377,13 @@ class ExecutionService:
         recovery_service = context["recovery_service"]
         observation_collector = context["observation_collector"]
 
+        # 更新状态为 preparing
         await self._update_run_status(scenario_run_id, RunStatus.PREPARING)
 
         # ===== 准备阶段 =====
-        prepare_result = await self._execute_prepare_phase(scenario_run_id, context)
+        prepare_result = await self._execute_prepare_phase(
+            scenario_run_id, context
+        )
         if not prepare_result["success"]:
             logger.error("准备阶段失败")
             await self._record_step(
@@ -414,14 +397,18 @@ class ExecutionService:
             prepare_result
         )
 
-        context["observations"]["before"] = await observation_collector.collect_before_inject(
-            executor
+        # 采集初始观测
+        context["observations"]["before"] = await observation_service.collect_before_inject(
+            observation_collector, executor
         )
 
+        # 更新状态为 injecting
         await self._update_run_status(scenario_run_id, RunStatus.INJECTING)
 
         # ===== 注入阶段 =====
-        inject_result = await self._execute_inject_phase(scenario_run_id, context)
+        inject_result = await injector_service.execute_inject(
+            scenario_run_id, context
+        )
         context["inject_result"] = inject_result
 
         if not inject_result.get("success"):
@@ -431,24 +418,30 @@ class ExecutionService:
             await recovery_service.execute_recovery_steps(executor, context)
             return RunStatus.FAILED
 
-        context["observations"]["after_inject"] = await observation_collector.collect_after_inject(
-            executor
+        # 采集注入后观测
+        context["observations"]["after_inject"] = await observation_service.collect_after_inject(
+            observation_collector, executor
         )
 
+        # 更新状态为 validating
         await self._update_run_status(scenario_run_id, RunStatus.VALIDATING)
 
         # ===== 验证阶段 =====
-        validation_result = await self._execute_validate_phase(scenario_run_id, context)
+        validation_result = await validation_service.execute_validation(
+            scenario_run_id, context
+        )
         context["validation_result"] = validation_result
 
+        # 更新状态为 recovering
         await self._update_run_status(scenario_run_id, RunStatus.RECOVERING)
 
         # ===== 恢复阶段 =====
         recovery_result = await recovery_service.execute_recovery_steps(executor, context)
         context["recovery_result"] = recovery_result
 
-        context["observations"]["after_recovery"] = await observation_collector.collect_after_recovery(
-            executor
+        # 采集恢复后观测
+        context["observations"]["after_recovery"] = await observation_service.collect_after_recovery(
+            observation_collector, executor
         )
 
         # ===== 收集阶段 =====
@@ -534,181 +527,6 @@ class ExecutionService:
             result["error"] = str(e)
             result["message"] = f"准备阶段异常：{str(e)}"
             logger.exception("准备阶段异常")
-
-        return result
-
-    async def _execute_inject_phase(
-        self, scenario_run_id: int, context: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """执行注入阶段（带超时控制）."""
-        injector = context.get("injector")
-        executor = context["executor"]
-        fault_profile = context.get("fault_profile", {})
-        artifacts_dir = context["artifacts_dir"]
-
-        started_at = datetime.utcnow()
-        timeout_sec = self._timeout_config["inject"]
-
-        result = {
-            "success": False,
-            "fault_injected": False,
-            "fault_observed": False,
-            "started_at": started_at.isoformat(),
-            "finished_at": None,
-            "details": {},
-            "timeout_sec": timeout_sec,
-        }
-
-        if injector is None:
-            result["success"] = True
-            result["skipped"] = True
-            result["message"] = "没有配置注入器，跳过注入"
-            return result
-
-        try:
-            async with asyncio.timeout(timeout_sec):
-                inject_context = InjectContext(
-                    scenario_run_id=scenario_run_id,
-                    device_serial=context["device_serial"],
-                    executor=executor,
-                    fault_profile=fault_profile,
-                    artifacts_dir=artifacts_dir,
-                    started_at=started_at,
-                    inject_stage=context["inject_stage"],
-                )
-
-                prepare_success = await injector.prepare(inject_context)
-                if not prepare_success:
-                    result["success"] = False
-                    result["message"] = "注入准备失败"
-                    await self._record_step(
-                        scenario_run_id, StepType.INJECT, StepStatus.FAILED, result
-                    )
-                    return result
-
-                inject_result: InjectResult = await injector.inject(inject_context)
-
-                result["success"] = inject_result.success
-                result["fault_injected"] = inject_result.fault_injected
-                result["fault_observed"] = inject_result.fault_observed
-                result["message"] = inject_result.message
-                result["details"] = inject_result.details
-                result["cleanup_required"] = inject_result.cleanup_required
-                result["finished_at"] = datetime.utcnow().isoformat()
-
-            step_status = StepStatus.SUCCESS if result["success"] else StepStatus.FAILED
-            await self._record_step(
-                scenario_run_id, StepType.INJECT, step_status, result
-            )
-
-            logger.info(f"注入完成：{result['message']}")
-
-        except asyncio.TimeoutError:
-            result["success"] = False
-            result["error"] = "timeout"
-            result["timeout"] = True
-            result["message"] = f"注入阶段超时（{timeout_sec}秒）"
-            result["cleanup_required"] = True
-            logger.error(f"注入阶段超时：run_id={scenario_run_id}, timeout={timeout_sec}s")
-            await self._record_step(
-                scenario_run_id, StepType.INJECT, StepStatus.TIMEOUT, result
-            )
-
-        except Exception as e:
-            result["success"] = False
-            result["error"] = str(e)
-            result["message"] = f"注入阶段异常：{str(e)}"
-            result["cleanup_required"] = True
-            logger.exception("注入阶段异常")
-            await self._record_step(
-                scenario_run_id, StepType.INJECT, StepStatus.FAILED, result
-            )
-
-        return result
-
-    async def _execute_validate_phase(
-        self, scenario_run_id: int, context: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """执行验证阶段（带超时控制）."""
-        validator = context.get("validator")
-        executor = context["executor"]
-        validation_profile = context.get("validation_profile", {})
-        artifacts_dir = context["artifacts_dir"]
-        inject_result = context.get("inject_result")
-
-        started_at = datetime.utcnow()
-        timeout_sec = self._timeout_config["validate"]
-
-        result = {
-            "passed": False,
-            "started_at": started_at.isoformat(),
-            "finished_at": None,
-            "checks": [],
-            "details": {},
-            "timeout_sec": timeout_sec,
-        }
-
-        if validator is None:
-            result["passed"] = True
-            result["skipped"] = True
-            result["message"] = "没有配置验证器，跳过验证"
-            return result
-
-        try:
-            async with asyncio.timeout(timeout_sec):
-                validation_context = ValidationContext(
-                    scenario_run_id=scenario_run_id,
-                    device_serial=context["device_serial"],
-                    executor=executor,
-                    validation_profile=validation_profile,
-                    inject_result=inject_result,
-                    artifacts_dir=artifacts_dir,
-                    started_at=started_at,
-                )
-
-                validation_result: ValidationResult = await validator.validate(validation_context)
-
-                result["passed"] = validation_result.passed
-                result["fault_observed"] = validation_result.fault_observed
-                result["checks"] = [
-                    {
-                        "check_name": c.check_name,
-                        "passed": c.passed,
-                        "expected": c.expected,
-                        "actual": c.actual,
-                        "message": c.message,
-                    }
-                    for c in validation_result.checks
-                ]
-                result["details"] = validation_result.details
-                result["message"] = validation_result.message
-                result["finished_at"] = datetime.utcnow().isoformat()
-
-            step_status = StepStatus.SUCCESS if result["passed"] else StepStatus.FAILED
-            await self._record_step(
-                scenario_run_id, StepType.VALIDATE, step_status, result
-            )
-
-            logger.info(f"验证完成：{result['message']}")
-
-        except asyncio.TimeoutError:
-            result["passed"] = False
-            result["error"] = "timeout"
-            result["timeout"] = True
-            result["message"] = f"验证阶段超时（{timeout_sec}秒）"
-            logger.error(f"验证阶段超时：run_id={scenario_run_id}, timeout={timeout_sec}s")
-            await self._record_step(
-                scenario_run_id, StepType.VALIDATE, StepStatus.TIMEOUT, result
-            )
-
-        except Exception as e:
-            result["passed"] = False
-            result["error"] = str(e)
-            result["message"] = f"验证阶段异常：{str(e)}"
-            logger.exception("验证阶段异常")
-            await self._record_step(
-                scenario_run_id, StepType.VALIDATE, StepStatus.FAILED, result
-            )
 
         return result
 
@@ -837,6 +655,8 @@ class ExecutionService:
     ) -> None:
         """记录执行步骤."""
         async with get_session_context() as session:
+            from sqlalchemy import select
+
             result = await session.execute(
                 select(ScenarioStep)
                 .where(ScenarioStep.scenario_run_id == scenario_run_id)
@@ -917,13 +737,13 @@ class ExecutionService:
             logger.exception(f"生成报告失败：{str(e)}")
 
 
-# 全局执行服务实例
-_execution_service: Optional[ExecutionService] = None
+# 全局编排服务实例
+_orchestrator_service: Optional[ScenarioOrchestratorService] = None
 
 
-def get_execution_service() -> ExecutionService:
-    """获取执行服务实例."""
-    global _execution_service
-    if _execution_service is None:
-        _execution_service = ExecutionService()
-    return _execution_service
+def get_scenario_orchestrator_service() -> ScenarioOrchestratorService:
+    """获取编排服务实例."""
+    global _orchestrator_service
+    if _orchestrator_service is None:
+        _orchestrator_service = ScenarioOrchestratorService()
+    return _orchestrator_service

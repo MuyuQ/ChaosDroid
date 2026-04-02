@@ -11,12 +11,16 @@ Example:
 """
 
 from .logging import (
-    LOG_FORMAT,
+    DEFAULT_LOG_FORMAT,
+    DEFAULT_DATE_FORMAT,
     LOG_LEVELS,
     LogLevelContext,
     get_logger,
     log_startup_info,
     setup_logging,
+    load_log_format_from_env,
+    load_log_file_from_env,
+    load_log_backup_count_from_env,
 )
 from .settings import Settings, get_settings
 
@@ -29,6 +33,10 @@ __all__ = [
     "get_logger",
     "log_startup_info",
     "LogLevelContext",
-    "LOG_FORMAT",
+    "DEFAULT_LOG_FORMAT",
+    "DEFAULT_DATE_FORMAT",
     "LOG_LEVELS",
+    "load_log_format_from_env",
+    "load_log_file_from_env",
+    "load_log_backup_count_from_env",
 ]

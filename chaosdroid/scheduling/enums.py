@@ -1,53 +1,24 @@
-"""Scheduling-related enumerations."""
-from enum import Enum
+"""Scheduling-related enumerations.
 
+此模块已废弃，所有枚举已迁移到 chaosdroid.models.base。
+为了保持向后兼容，此处重新导出 base.py 中的枚举定义。
+"""
 
-class DeviceStatus(str, Enum):
-    """设备状态."""
-    IDLE = "idle"
-    RESERVED = "reserved"
-    BUSY = "busy"
-    OFFLINE = "offline"
-    QUARANTINED = "quarantined"
-    RECOVERING = "recovering"
+# 从 base.py 导入所有枚举，保持向后兼容
+from chaosdroid.models.base import (
+    DeviceStatus,
+    DevicePoolPurpose,
+    LeaseStatus,
+    Priority,
+    EventType,
+    EventSeverity,
+)
 
-
-class DevicePoolPurpose(str, Enum):
-    """设备池用途."""
-    STABLE = "stable"
-    STRESS = "stress"
-    EMERGENCY = "emergency"
-
-
-class LeaseStatus(str, Enum):
-    """设备租约状态."""
-    ACTIVE = "active"
-    RELEASED = "released"
-    PREEMPTED = "preempted"
-    EXPIRED = "expired"
-
-
-class Priority(str, Enum):
-    """任务优先级."""
-    NORMAL = "normal"
-    HIGH = "high"
-    EMERGENCY = "emergency"
-
-
-class EventType(str, Enum):
-    """事件类型."""
-    DEVICE_OFFLINE = "device_offline"
-    HEALTH_FAILED = "health_failed"
-    LEASE_CREATED = "lease_created"
-    PREEMPTION_TRIGGERED = "preemption_triggered"
-    DEVICE_QUARANTINED = "device_quarantined"
-    DEVICE_RECOVERED = "device_recovered"
-    DEVICE_RECOVERY_FAILED = "device_recovery_failed"
-
-
-class EventSeverity(str, Enum):
-    """事件严重程度."""
-    INFO = "info"
-    WARNING = "warning"
-    ERROR = "error"
-    CRITICAL = "critical"
+__all__ = [
+    "DeviceStatus",
+    "DevicePoolPurpose",
+    "LeaseStatus",
+    "Priority",
+    "EventType",
+    "EventSeverity",
+]

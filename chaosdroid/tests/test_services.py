@@ -4,7 +4,7 @@
 测试ExecutionService、RecoveryService和ReportGenerator。
 """
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -20,6 +20,7 @@ from chaosdroid.services.recovery_service import (
     RecoveryStepResult,
     RecoveryResult,
 )
+from chaosdroid.services.device_lock_manager import DeviceLock, DeviceLockManager, DeviceLockTimeoutError
 
 
 # ==================== Fixtures ====================
@@ -993,5 +994,319 @@ class TestExecutionServiceJudgment:
 
         judgment = service._make_final_judgment(context)
 
+        assert judgment.final_status == "partial"
+        assert judgment.manual_action_required is True
+
+    def test_make_final_judgment_inject_failed(self, service):
+        """测试注入失败时最终判定。"""
+        context = {
+            "inject_result": {"success": False, "fault_injected": False},
+            "validation_result": None,
+            "recovery_result": None,
+            "fault_profile": {},
+        }
+
+        judgment = service._make_final_judgment(context)
+
         assert judgment.final_status == "failed"
         assert judgment.fault_injected is False
+
+
+# ==================== DeviceLockManager 测试 ====================
+
+class TestDeviceLock:
+    """测试 DeviceLock 数据类。"""
+
+    def test_lock_creation(self):
+        """测试创建设备锁。"""
+        lock = DeviceLock(
+            device_serial="device_001",
+            scenario_run_id=1,
+            acquired_at=datetime.utcnow(),
+            timeout_sec=300,
+        )
+
+        assert lock.device_serial == "device_001"
+        assert lock.scenario_run_id == 1
+        assert lock.timeout_sec == 300
+
+    def test_lock_is_expired_false(self):
+        """测试未过期锁的过期检查。"""
+        lock = DeviceLock(
+            device_serial="device_001",
+            scenario_run_id=1,
+            acquired_at=datetime.utcnow(),
+            timeout_sec=300,
+        )
+
+        assert lock.is_expired() is False
+        assert lock.remaining_time() > 0
+
+    def test_lock_is_expired_true(self):
+        """测试过期锁的过期检查。"""
+        lock = DeviceLock(
+            device_serial="device_001",
+            scenario_run_id=1,
+            acquired_at=datetime.utcnow() - timedelta(seconds=400),
+            timeout_sec=300,
+        )
+
+        assert lock.is_expired() is True
+        assert lock.remaining_time() == 0.0
+
+
+class TestDeviceLockManagerBasic:
+    """测试 DeviceLockManager 基础功能。"""
+
+    @pytest.fixture
+    def lock_manager(self):
+        """创建设备锁管理器实例。"""
+        return DeviceLockManager(default_timeout=60, cleanup_interval=10)
+
+    def test_manager_init(self, lock_manager):
+        """测试管理器初始化。"""
+        assert lock_manager._default_timeout == 60
+        assert lock_manager._cleanup_interval == 10
+        assert isinstance(lock_manager._locks, dict)
+
+    async def test_acquire_lock_success(self, lock_manager):
+        """测试成功获取锁。"""
+        lock = await lock_manager.acquire_lock(
+            device_serial="device_001",
+            scenario_run_id=1,
+            timeout_sec=60,
+            wait_timeout_sec=10,
+        )
+
+        assert lock is not None
+        assert lock.device_serial == "device_001"
+        assert lock.scenario_run_id == 1
+        assert lock.is_expired() is False
+
+    async def test_acquire_lock_replaces_expired(self, lock_manager):
+        """测试获取锁时替换过期锁。"""
+        from datetime import timedelta
+
+        # 先创建一个过期锁
+        lock_manager._locks["device_001"] = DeviceLock(
+            device_serial="device_001",
+            scenario_run_id=999,
+            acquired_at=datetime.utcnow() - timedelta(seconds=100),
+            timeout_sec=50,  # 已过期
+        )
+
+        # 获取新锁应成功替换
+        new_lock = await lock_manager.acquire_lock(
+            device_serial="device_001",
+            scenario_run_id=1,
+            timeout_sec=60,
+        )
+
+        assert new_lock is not None
+        assert new_lock.scenario_run_id == 1
+        assert "device_001" in lock_manager._locks
+
+    async def test_release_lock_success(self, lock_manager):
+        """测试成功释放锁。"""
+        # 先获取锁
+        await lock_manager.acquire_lock(
+            device_serial="device_001",
+            scenario_run_id=1,
+        )
+
+        # 释放锁
+        released = await lock_manager.release_lock(
+            device_serial="device_001",
+            scenario_run_id=1,
+        )
+
+        assert released is True
+        assert "device_001" not in lock_manager._locks
+
+    async def test_release_lock_not_found(self, lock_manager):
+        """测试释放不存在的锁。"""
+        released = await lock_manager.release_lock(
+            device_serial="device_001",
+            scenario_run_id=1,
+        )
+
+        assert released is False
+
+    async def test_release_lock_owner_mismatch(self, lock_manager):
+        """测试释放锁时所有权不匹配。"""
+        # 先获取锁
+        await lock_manager.acquire_lock(
+            device_serial="device_001",
+            scenario_run_id=1,
+        )
+
+        # 尝试用不同的 run_id 释放
+        released = await lock_manager.release_lock(
+            device_serial="device_001",
+            scenario_run_id=2,
+        )
+
+        assert released is False
+        # 锁仍然存在于 manager 中
+        assert "device_001" in lock_manager._locks
+
+    async def test_is_locked_true(self, lock_manager):
+        """测试检查锁存在返回 True。"""
+        await lock_manager.acquire_lock(
+            device_serial="device_001",
+            scenario_run_id=1,
+        )
+
+        locked = await lock_manager.is_locked("device_001")
+        assert locked is True
+
+    async def test_is_locked_false(self, lock_manager):
+        """测试检查锁不存在返回 False。"""
+        locked = await lock_manager.is_locked("device_001")
+        assert locked is False
+
+    async def test_is_locked_expired(self, lock_manager):
+        """测试检查过期锁返回 False。"""
+        from datetime import timedelta
+
+        lock_manager._locks["device_001"] = DeviceLock(
+            device_serial="device_001",
+            scenario_run_id=1,
+            acquired_at=datetime.utcnow() - timedelta(seconds=100),
+            timeout_sec=50,  # 已过期
+        )
+
+        locked = await lock_manager.is_locked("device_001")
+        assert locked is False
+
+    async def test_get_lock_info(self, lock_manager):
+        """测试获取锁信息。"""
+        await lock_manager.acquire_lock(
+            device_serial="device_001",
+            scenario_run_id=1,
+        )
+
+        lock_info = await lock_manager.get_lock_info("device_001")
+
+        assert lock_info is not None
+        assert lock_info.device_serial == "device_001"
+        assert lock_info.scenario_run_id == 1
+
+    async def test_get_lock_info_not_locked(self, lock_manager):
+        """测试获取未锁定设备的信息。"""
+        lock_info = await lock_manager.get_lock_info("device_001")
+        assert lock_info is None
+
+    async def test_force_release_lock(self, lock_manager):
+        """测试强制释放锁。"""
+        await lock_manager.acquire_lock(
+            device_serial="device_001",
+            scenario_run_id=1,
+        )
+
+        released = await lock_manager.force_release_lock(
+            device_serial="device_001",
+            reason="test_force",
+        )
+
+        assert released is True
+        assert "device_001" not in lock_manager._locks
+
+    async def test_force_release_lock_not_locked(self, lock_manager):
+        """测试强制释放未锁定的设备。"""
+        released = await lock_manager.force_release_lock(
+            device_serial="device_001",
+            reason="test",
+        )
+
+        assert released is False
+
+    async def test_get_all_locks(self, lock_manager):
+        """测试获取所有锁。"""
+        await lock_manager.acquire_lock("device_001", 1)
+        await lock_manager.acquire_lock("device_002", 2)
+
+        all_locks = await lock_manager.get_all_locks()
+
+        assert len(all_locks) == 2
+        assert "device_001" in all_locks
+        assert "device_002" in all_locks
+
+    async def test_get_locked_devices(self, lock_manager):
+        """测试获取所有被锁定的设备。"""
+        await lock_manager.acquire_lock("device_001", 1)
+        await lock_manager.acquire_lock("device_002", 2)
+
+        devices = await lock_manager.get_locked_devices()
+
+        assert devices == {"device_001", "device_002"}
+
+    async def test_cleanup_expired_locks(self, lock_manager):
+        """测试清理过期锁。"""
+        from datetime import timedelta
+
+        # 创建一个活跃锁
+        await lock_manager.acquire_lock("device_001", 1, timeout_sec=300)
+
+        # 创建一个过期锁
+        lock_manager._locks["device_002"] = DeviceLock(
+            device_serial="device_002",
+            scenario_run_id=2,
+            acquired_at=datetime.utcnow() - timedelta(seconds=100),
+            timeout_sec=50,
+        )
+
+        cleaned = await lock_manager.cleanup_expired_locks()
+
+        assert cleaned == 1
+        assert "device_002" not in lock_manager._locks
+        assert "device_001" in lock_manager._locks
+
+
+class TestDeviceLockManagerConcurrent:
+    """测试 DeviceLockManager 并发场景。"""
+
+    @pytest.fixture
+    def lock_manager(self):
+        """创建设备锁管理器实例。"""
+        return DeviceLockManager(default_timeout=300, cleanup_interval=60)
+
+    async def test_concurrent_acquire_same_device(self, lock_manager):
+        """测试并发获取同一设备的锁。"""
+        import asyncio
+
+        async def acquire_task(run_id):
+            return await lock_manager.acquire_lock(
+                device_serial="device_001",
+                scenario_run_id=run_id,
+                wait_timeout_sec=5,
+            )
+
+        # 并发获取同一设备的锁
+        tasks = [acquire_task(i) for i in range(1, 4)]
+
+        # 只有一个能成功，其他会超时
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # 只有一个成功
+        success_count = sum(1 for r in results if not isinstance(r, Exception))
+        assert success_count == 1
+
+    async def test_acquire_lock_timeout_waiting(self, lock_manager):
+        """测试等待锁释放超时。"""
+        import asyncio
+
+        # 先获取一个长超时锁
+        await lock_manager.acquire_lock(
+            device_serial="device_001",
+            scenario_run_id=1,
+            timeout_sec=300,
+        )
+
+        # 尝试获取锁，等待超时
+        with pytest.raises(DeviceLockTimeoutError):
+            await lock_manager.acquire_lock(
+                device_serial="device_001",
+                scenario_run_id=2,
+                wait_timeout_sec=1,  # 很短的等待时间
+            )

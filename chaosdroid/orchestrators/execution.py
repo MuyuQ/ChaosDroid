@@ -6,13 +6,19 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from chaosdroid.config.settings import get_settings
 from chaosdroid.executors.base import BaseDeviceExecutor, StorageInfo, BatteryInfo
 from chaosdroid.injectors.base import BaseInjector, InjectContext, InjectResult
 from chaosdroid.models.base import StepStatus, StepType
 from chaosdroid.observers.collector import ArtifactCollector, ObservationCollector
+from chaosdroid.services.device_lock_manager import (
+    DeviceLockManager,
+    DeviceLockTimeoutError,
+    DeviceAlreadyLockedError,
+    get_device_lock_manager,
+)
 from chaosdroid.validators.base import BaseValidator, ValidationContext, ValidationResult
 
 logger = logging.getLogger(__name__)
@@ -723,8 +729,13 @@ class CollectPhaseExecutor:
 class ScenarioExecution:
     """场景执行编排."""
 
-    def __init__(self, scenario_run_id: int):
+    def __init__(
+        self,
+        scenario_run_id: int,
+        device_lock_manager: Optional[DeviceLockManager] = None,
+    ):
         self.scenario_run_id = scenario_run_id
+        self.device_lock_manager = device_lock_manager or get_device_lock_manager()
         self.settings = get_settings()
         self.artifacts_dir = self.settings.get_artifacts_dir() / str(scenario_run_id)
         self.artifacts_dir.mkdir(parents=True, exist_ok=True)
@@ -866,6 +877,101 @@ class ScenarioExecution:
             return "partial"
 
         return "failed"
+
+    async def execute_with_device_lock(
+        self,
+        executor: BaseDeviceExecutor,
+        injector: Optional[BaseInjector],
+        validator: Optional[BaseValidator],
+        fault_profile: Optional[Dict[str, Any]],
+        validation_profile: Optional[Dict[str, Any]],
+        recovery_profile: Optional[Dict[str, Any]],
+        inject_stage: str = "precheck",
+        lock_timeout_sec: int = 600,
+        wait_timeout_sec: int = 30,
+    ) -> Tuple[Dict[str, Any], bool]:
+        """在设备锁保护下执行场景。
+
+        获取设备锁，执行完整流程，确保在异常情况下也释放锁。
+
+        Args:
+            executor: 设备执行器
+            injector: 故障注入器
+            validator: 验证器
+            fault_profile: 故障配置
+            validation_profile: 验证配置
+            recovery_profile: 恢复配置
+            inject_stage: 注入阶段
+            lock_timeout_sec: 锁超时时间（秒）
+            wait_timeout_sec: 等待锁的超时时间（秒）
+
+        Returns:
+            Tuple[Dict[str, Any], bool]: (执行结果，是否获取到锁)
+
+        Raises:
+            DeviceLockTimeoutError: 获取设备锁超时
+        """
+        device_serial = executor.device_serial
+        lock_acquired = False
+
+        # ===== 获取设备锁 =====
+        try:
+            lock = await self.device_lock_manager.acquire_lock(
+                device_serial=device_serial,
+                scenario_run_id=self.scenario_run_id,
+                timeout_sec=lock_timeout_sec,
+                wait_timeout_sec=wait_timeout_sec,
+            )
+            lock_acquired = True
+            logger.info(
+                f"设备锁已获取：device={device_serial}, "
+                f"run_id={self.scenario_run_id}, "
+                f"timeout={lock_timeout_sec}s"
+            )
+        except DeviceLockTimeoutError as e:
+            logger.error(f"获取设备锁超时：device={device_serial}, run_id={self.scenario_run_id}")
+            raise
+        except DeviceAlreadyLockedError as e:
+            logger.error(f"设备已被锁定：device={device_serial}, run_id={self.scenario_run_id}")
+            raise
+
+        try:
+            # ===== 执行完整流程 =====
+            result = await self.run_full_execution(
+                executor=executor,
+                injector=injector,
+                validator=validator,
+                fault_profile=fault_profile,
+                validation_profile=validation_profile,
+                recovery_profile=recovery_profile,
+                inject_stage=inject_stage,
+            )
+            return result, lock_acquired
+
+        except PreemptionException:
+            # 被抢占时重新抛出
+            logger.warning(f"任务被抢占：run_id={self.scenario_run_id}")
+            raise
+
+        except Exception as e:
+            logger.exception(f"执行异常：run_id={self.scenario_run_id}, device={device_serial}")
+            raise
+
+        finally:
+            # ===== 释放设备锁 =====
+            if lock_acquired:
+                released = await self.device_lock_manager.release_lock(
+                    device_serial=device_serial,
+                    scenario_run_id=self.scenario_run_id,
+                )
+                if released:
+                    logger.info(
+                        f"设备锁已释放：device={device_serial}, run_id={self.scenario_run_id}"
+                    )
+                else:
+                    logger.warning(
+                        f"设备锁释放失败或已被释放：device={device_serial}, run_id={self.scenario_run_id}"
+                    )
 
     async def execute_with_lease(
         self,

@@ -81,8 +81,8 @@ class FaultType(str, Enum):
     low_battery = "low_battery"  # 低电量
     network_jitter = "network_jitter"  # 网络波动
     reboot_timeout = "reboot_timeout"  # 重启超时
-    cpu_io_stress = "cpu_io_stress"  # CPU/I/O压力
-    monkey_stability = "monkey_stability"  # Monkey稳定性
+    cpu_io_stress = "cpu_io_stress"  # CPU/I/O 压力
+    monkey_stability = "monkey_stability"  # Monkey 稳定性
 
 
 class InjectStage(str, Enum):
@@ -101,7 +101,7 @@ class TargetType(str, Enum):
 
     UPGRADE = "upgrade"  # 升级链路测试
     STABILITY = "stability"  # 稳定性测试
-    MONKEY = "monkey"  # Monkey压测
+    MONKEY = "monkey"  # Monkey 压测
     RECOVERY = "recovery"  # 恢复能力验证
 
 
@@ -110,7 +110,7 @@ class RiskLevel(str, Enum):
 
     low = "low"  # 不影响关键链路
     medium = "medium"  # 影响升级链路
-    high = "high"  # 影响boot或系统可用性
+    high = "high"  # 影响 boot 或系统可用性
     critical = "critical"  # 需要人工介入恢复
 
 
@@ -124,12 +124,74 @@ class ExecutorMode(str, Enum):
 class ArtifactType(str, Enum):
     """产物类型枚举。"""
 
-    LOGCAT = "logcat"  # logcat日志
+    LOGCAT = "logcat"  # logcat 日志
     GETPROP = "getprop"  # 属性摘要
     BATTERY = "battery"  # 电池信息
-    MONKEY = "monkey"  # Monkey输出
+    MONKEY = "monkey"  # Monkey 输出
     STDOUT = "stdout"  # 标准输出
     STDERR = "stderr"  # 标准错误
     SNAPSHOT = "snapshot"  # 状态快照
     SUMMARY = "summary"  # 步骤摘要
     OTHER = "other"  # 其他
+
+
+# =============================================================================
+# 设备与调度相关枚举（从 scheduling/enums.py 迁移而来，保持向后兼容）
+# =============================================================================
+
+
+class DeviceStatus(str, Enum):
+    """设备状态枚举。"""
+
+    IDLE = "idle"  # 空闲
+    RESERVED = "reserved"  # 已预留
+    BUSY = "busy"  # 忙碌
+    OFFLINE = "offline"  # 离线
+    QUARANTINED = "quarantined"  # 已隔离
+    RECOVERING = "recovering"  # 恢复中
+
+
+class DevicePoolPurpose(str, Enum):
+    """设备池用途枚举。"""
+
+    STABLE = "stable"  # 稳定测试
+    STRESS = "stress"  # 压力测试
+    EMERGENCY = "emergency"  # 紧急任务
+
+
+class LeaseStatus(str, Enum):
+    """设备租约状态枚举。"""
+
+    ACTIVE = "active"  # 活跃
+    RELEASED = "released"  # 已释放
+    PREEMPTED = "preempted"  # 被抢占
+    EXPIRED = "expired"  # 已过期
+
+
+class Priority(str, Enum):
+    """任务优先级枚举。"""
+
+    NORMAL = "normal"  # 普通
+    HIGH = "high"  # 高
+    EMERGENCY = "emergency"  # 紧急
+
+
+class EventType(str, Enum):
+    """事件类型枚举。"""
+
+    DEVICE_OFFLINE = "device_offline"  # 设备离线
+    HEALTH_FAILED = "health_failed"  # 健康检查失败
+    LEASE_CREATED = "lease_created"  # 租约创建
+    PREEMPTION_TRIGGERED = "preemption_triggered"  # 抢占触发
+    DEVICE_QUARANTINED = "device_quarantined"  # 设备被隔离
+    DEVICE_RECOVERED = "device_recovered"  # 设备恢复
+    DEVICE_RECOVERY_FAILED = "device_recovery_failed"  # 设备恢复失败
+
+
+class EventSeverity(str, Enum):
+    """事件严重程度枚举。"""
+
+    INFO = "info"  # 信息
+    WARNING = "warning"  # 警告
+    ERROR = "error"  # 错误
+    CRITICAL = "critical"  # 严重

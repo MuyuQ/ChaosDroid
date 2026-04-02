@@ -144,10 +144,11 @@ class ScenarioRun(Base, TimestampMixin):
     __tablename__ = "scenario_runs"
     __table_args__ = (
         Index("ix_scenario_runs_status", "status"),
+        Index("ix_scenario_runs_priority", "priority"),
         Index("ix_scenario_runs_scenario_template_id", "scenario_template_id"),
         Index("ix_scenario_runs_device_serial", "device_serial"),
-        Index("ix_scenario_runs_status_priority_submitted", "status", "priority", "submitted_at"),
         Index("ix_scenario_runs_device_id", "device_id"),
+        Index("ix_scenario_runs_status_priority_submitted", "status", "priority", "submitted_at"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, comment="主键")

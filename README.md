@@ -112,6 +112,198 @@ chaosdroid report show 1
 chaosdroid report export 1 --format html --output ./report.html
 ```
 
+## 使用示例
+
+### Python API 使用示例
+
+#### 基本使用
+
+```python
+import asyncio
+from chaosdroid.executors.mock_executor import MockDeviceExecutor
+from chaosdroid.config.logging import setup_logging, get_logger
+
+# 配置日志
+logger = setup_logging(level="INFO")
+log = get_logger("example")
+
+async def main():
+    # 创建 Mock 设备
+    executor = MockDeviceExecutor("test_device_001")
+    
+    # 检查设备状态
+    if await executor.is_online():
+        log.info("设备在线")
+        
+        # 获取设备信息
+        battery = await executor.get_battery_info()
+        log.info(f"电量：{battery.level}%")
+        
+        storage = await executor.get_storage_info()
+        log.info(f"可用存储：{storage.available / 1024 / 1024:.2f} MB")
+        
+        # 获取 logcat 日志
+        logcat = await executor.get_logcat(lines=50)
+        log.info(f"日志预览：{logcat[:200]}...")
+
+asyncio.run(main())
+```
+
+#### 故障注入示例
+
+```python
+import asyncio
+from datetime import datetime
+from chaosdroid.executors.mock_executor import MockDeviceExecutor
+from chaosdroid.injectors.storage_pressure import StoragePressureInjector
+from chaosdroid.injectors.base import InjectContext
+
+async def inject_fault_example():
+    # 创建执行器和注入器
+    executor = MockDeviceExecutor("test_device_001")
+    injector = StoragePressureInjector()
+    
+    # 创建注入上下文
+    context = InjectContext(
+        scenario_run_id=1,
+        device_serial="test_device_001",
+        executor=executor,
+        fault_profile={"parameters": {"pressure_mb": 500}},
+        artifacts_dir="./artifacts",
+        started_at=datetime.utcnow(),
+        inject_stage="precheck",
+    )
+    
+    # 执行注入流程
+    if await injector.prepare(context):
+        print("准备成功")
+        
+        result = await injector.inject(context)
+        print(f"注入结果：{result.success}")
+        print(f"故障已注入：{result.fault_injected}")
+        print(f"需要清理：{result.cleanup_required}")
+        
+        # 清理
+        if result.cleanup_required:
+            await injector.cleanup(context)
+            print("清理完成")
+
+asyncio.run(inject_fault_example())
+```
+
+#### 使用测试数据工厂
+
+```python
+from chaosdroid.tests.factories import (
+    FaultProfileFactory,
+    ValidationProfileFactory,
+    RecoveryProfileFactory,
+    ScenarioTemplateFactory,
+    DeviceFactory,
+    ScenarioFactory,
+)
+
+# 创建单个配置
+fault_profile = FaultProfileFactory.create(
+    name="网络延迟测试",
+    fault_type="network_jitter",
+    parameters={"delay_ms": 500, "packet_loss": 0.1},
+    risk_level="medium",
+)
+
+# 创建验证配置
+validation_profile = ValidationProfileFactory.create(
+    name="网络验证",
+    checks=["network_connected", "dns_resolvable", "http_reachable"],
+    timeout_sec=120,
+)
+
+# 创建设备
+device = DeviceFactory.create(
+    serial="Pixel7_001",
+    model="Pixel 7",
+    brand="Google",
+    status="available",
+)
+
+# 批量创建设备
+devices = DeviceFactory.create_batch(5, status="available")
+
+# 创建完整场景
+full_scenario = ScenarioFactory.create_full_scenario(
+    name="稳定性测试",
+    device_serial="test_device_001",
+    mode="mock",
+)
+
+# 访问创建的对象
+print(f"故障配置：{full_scenario['fault_profile'].name}")
+print(f"设备：{full_scenario['device'].serial}")
+```
+
+#### 日志配置示例
+
+```python
+from chaosdroid.config.logging import setup_logging, get_logger
+import os
+
+# 方式 1: 使用默认配置
+logger = setup_logging()
+
+# 方式 2: 自定义日志级别和格式
+logger = setup_logging(
+    level="DEBUG",
+    log_format="%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s",
+    date_format="%Y-%m-%d %H:%M:%S",
+)
+
+# 方式 3: 通过环境变量加载日志配置
+# 设置环境变量：
+# export CHAOSDROID_LOG_FORMAT_STRING="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+# export CHAOSDROID_LOG_FILE="/var/log/chaosdroid/app.log"
+# export CHAOSDROID_LOG_BACKUP_COUNT=60
+logger = setup_logging()  # 会自动从环境变量加载配置
+
+# 获取日志器
+log = get_logger("my_module")
+log.info("应用启动")
+log.debug("调试信息")
+log.error("错误信息")
+```
+
+### 环境变量配置示例
+
+```bash
+# .env 文件示例
+
+# 数据库配置
+CHAOSDROID_DATABASE_PATH=/var/lib/chaosdroid/chaosdroid.db
+
+# 目录配置
+CHAOSDROID_ARTIFACTS_DIR=/var/lib/chaosdroid/artifacts
+CHAOSDROID_REPORTS_DIR=/var/lib/chaosdroid/reports
+
+# 日志配置
+CHAOSDROID_LOG_LEVEL=DEBUG
+CHAOSDROID_LOG_FORMAT=text
+CHAOSDROID_LOG_FORMAT_STRING="%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s"
+CHAOSDROID_LOG_FILE=/var/log/chaosdroid/app.log
+CHAOSDROID_LOG_BACKUP_COUNT=60
+
+# 超时配置
+CHAOSDROID_PREPARE_TIMEOUT=60
+CHAOSDROID_INJECT_TIMEOUT=180
+CHAOSDROID_VALIDATE_TIMEOUT=180
+CHAOSDROID_RECOVERY_TIMEOUT=300
+
+# Web 服务配置
+CHAOSDROID_WEB_PORT=8000
+
+# 安全配置
+CHAOSDROID_DANGEROUS_OPERATIONS_REQUIRE_CONFIRM=true
+CHAOSDROID_API_KEYS=key1,key2,key3
+```
+
 ## 故障注入类型
 
 | 类型 | 描述 | 风险等级 |

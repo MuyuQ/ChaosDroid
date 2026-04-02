@@ -25,8 +25,14 @@ from .profile_service import (
 
 # 现有服务
 from .report_generator import ReportGenerator, ReportData
-from .execution_service import ExecutionService, get_execution_service
 from .recovery_service import RecoveryService, RecoveryResult, RecoveryStep, RecoveryStepResult
+
+# 新拆分的服务层
+from .scenario_orchestrator_service import ScenarioOrchestratorService, get_scenario_orchestrator_service
+from .injector_dispatch_service import InjectorDispatchService, get_injector_dispatch_service
+from .validation_service import ValidationService, get_validation_service
+from .observation_service import ObservationService, get_observation_service
+from .execution_service import ExecutionService, get_execution_service
 
 # 场景模板服务
 from .scenario_service import (
@@ -127,6 +133,18 @@ __all__ = [
     # 报告生成
     "ReportGenerator",
     "ReportData",
+    # 编排服务
+    "ScenarioOrchestratorService",
+    "get_scenario_orchestrator_service",
+    # 注入器分发服务
+    "InjectorDispatchService",
+    "get_injector_dispatch_service",
+    # 验证服务
+    "ValidationService",
+    "get_validation_service",
+    # 观测服务
+    "ObservationService",
+    "get_observation_service",
     # 执行服务
     "ExecutionService",
     "get_execution_service",
