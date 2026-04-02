@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}诊断详情 - ChaosDroid{% endblock %}
+
+{% block content %}
+<div style="margin-bottom: 2rem;">
+    <a href="/diagnosis" class="btn btn-secondary">← 返回列表</a>
+</div>
+
+<div class="card">
+    <h2>任务信息</h2>
+    <table class="table">
+        <tr>
+            <th style="width: 150px;">任务 ID</th>
+            <td>{{ run.run_id }}</td>
+        </tr>
+        <tr>
+            <th>设备序列号</th>
+            <td>{{ run.device_serial or '-' }}</td>
+        </tr>
+        <tr>
+            <th>测试类型</th>
+            <td>{{ run.test_type or '-' }}</td>
+        </tr>
+        <tr>
+            <th>状态</th>
+            <td>
+                <span class="status-badge status-{{ run.status.value if hasattr(run.status, 'value') else run.status }}">
+                    {{ run.status.value if hasattr(run.status, 'value') else run.status }}
+                </span>
+            </td>
+        </tr>
+    </table>
+</div>
+
+{% if result %}
+<div class="card">
+    <h2>诊断结果</h2>
+    <table class="table">
+        <tr>
+            <th style="width: 150px;">故障分类</th>
+            <td><strong>{{ result.category }}</strong></td>
+        </tr>
+        <tr>
+            <th>根因</th>
+            <td>{{ result.root_cause }}</td>
+        </tr>
+        <tr>
+            <th>置信度</th>
+            <td>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <div style="flex: 1; background: #e5e7eb; border-radius: 4px; height: 8px;">
+                        <div style="width: {{ result.confidence * 100 }}%; background: {% if result.confidence >= 0.8 %}#22c55e{% elif result.confidence >= 0.5 %}#f59e0b{% else %}#ef4444{% endif %}; height: 100%; border-radius: 4px;"></div>
+                    </div>
+                    <span>{{ (result.confidence * 100)|int }}%</span>
+                </div>
+            </td>
+        </tr>
+        <tr>
+            <th>结果状态</th>
+            <td>
+                <span class="status-badge status-{{ result.result_status.value if hasattr(result.result_status, 'value') else result.result_status }}">
+                    {{ result.result_status.value if hasattr(result.result_status, 'value') else result.result_status }}
+                </span>
+            </td>
+        </tr>
+        <tr>
+            <th>关键证据</th>
+            <td>
+                <ul style="margin-top: 0.5rem;">
+                    {% for evidence in result.key_evidence %}
+                    <li><code style="background: #f3f4f6; padding: 2px 6px; border-radius: 3px;">{{ evidence }}</code></li>
+                    {% endfor %}
+                </ul>
+            </td>
+        </tr>
+        <tr>
+            <th>建议操作</th>
+            <td>{{ result.next_action }}</td>
+        </tr>
+    </table>
+</div>
+{% else %}
+<div class="card">
+    <h2>诊断结果</h2>
+    <p style="color: var(--text-muted);">此任务尚未执行诊断</p>
+    <form hx-post="/diagnosis/{{ run.run_id }}/execute"
+          hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'
+          hx-swap="outerHTML">
+        <button type="submit" class="btn btn-primary">执行诊断</button>
+    </form>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block title %}日志诊断 - ChaosDroid{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+    <h1>日志诊断</h1>
+    <a href="/diagnosis/import" class="btn btn-primary">导入日志</a>
+</div>
+
+<div class="card">
+    <table class="table">
+        <thead>
+            <tr>
+                <th>任务 ID</th>
+                <th>设备序列号</th>
+                <th>测试类型</th>
+                <th>状态</th>
+                <th>诊断结果</th>
+                <th>置信度</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for run in runs %}
+            <tr>
+                <td><a href="/diagnosis/{{ run.run_id }}"><strong>#{{ run.run_id }}</strong></a></td>
+                <td>{{ run.device_serial or '-' }}</td>
+                <td>{{ run.test_type or '-' }}</td>
+                <td>
+                    <span class="status-badge status-{{ run.status.value if hasattr(run.status, 'value') else run.status }}">
+                        {{ run.status.value if hasattr(run.status, 'value') else run.status }}
+                    </span>
+                </td>
+                <td>
+                    {% if run.run_id in results %}
+                        {% set result = results[run.run_id] %}
+                        <span style="color: {% if result.result_status.value == 'passed' %}green{% elif result.result_status.value == 'failed' %}red{% else %}orange{% endif %};">
+                            {{ result.category }}
+                        </span>
+                    {% else %}
+                        <span style="color: gray;">未诊断</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if run.run_id in results %}
+                        {% set result = results[run.run_id] %}
+                        {{ (result.confidence * 100)|int }}%
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+                <td>
+                    <a href="/diagnosis/{{ run.run_id }}" class="btn btn-sm btn-secondary">详情</a>
+                    {% if run.run_id not in results %}
+                    <button class="btn btn-sm btn-primary"
+                            hx-post="/diagnosis/{{ run.run_id }}/execute"
+                            hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'
+                            hx-swap="outerHTML">
+                        诊断
+                    </button>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

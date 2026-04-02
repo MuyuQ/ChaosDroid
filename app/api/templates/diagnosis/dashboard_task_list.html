@@ -1,0 +1,53 @@
+<table class="table table-hover">
+    <thead>
+        <tr>
+            <th>任务ID</th>
+            <th>设备</th>
+            <th>测试类型</th>
+            <th>诊断结果</th>
+            <th>开始时间</th>
+            <th>操作</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for run in runs %}
+        <tr>
+            <td><a href="/runs/{{ run.run_id }}">{{ run.run_id }}</a></td>
+            <td>{{ run.device_serial or 'N/A' }}</td>
+            <td>{{ run.test_type or 'N/A' }}</td>
+            <td>
+                {% if run.run_id in results %}
+                    {% set result = results[run.run_id] %}
+                    {% if result.result_status.value == 'passed' %}
+                        <span class="badge bg-success">通过 ({{ result.confidence * 100|round }}%)</span>
+                    {% elif result.result_status.value == 'failed' %}
+                        <span class="badge bg-danger">失败 - {{ result.root_cause }}</span>
+                    {% elif result.result_status.value == 'transient_failure' %}
+                        <span class="badge bg-warning text-dark">临时失败 - {{ result.root_cause }}</span>
+                    {% elif result.result_status.value == 'insufficient_evidence' %}
+                        <span class="badge bg-secondary">证据不足</span>
+                    {% else %}
+                        <span class="badge bg-info">{{ result.result_status.value }}</span>
+                    {% endif %}
+                {% elif run.status.value == 'imported' %}
+                    <span class="badge bg-secondary">已导入</span>
+                {% elif run.status.value == 'parsed' %}
+                    <span class="badge bg-info">已解析</span>
+                {% elif run.status.value == 'pending' %}
+                    <span class="badge bg-secondary">等待中</span>
+                {% else %}
+                    <span class="badge bg-secondary">{{ run.status.value }}</span>
+                {% endif %}
+            </td>
+            <td>{{ run.started_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+            <td>
+                <a href="/runs/{{ run.run_id }}" class="btn btn-sm btn-outline-primary">详情</a>
+            </td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="6" class="text-center text-muted">暂无任务</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>

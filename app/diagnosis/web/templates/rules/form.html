@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+
+{% block title %}{% if rule %}编辑规则{% else %}新增规则{% endif %} - TraceLens{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 offset-md-2">
+        <h2 class="mb-4">{% if rule %}编辑规则{% else %}新增规则{% endif %}</h2>
+
+        <div class="card">
+            <div class="card-body">
+                <form method="post">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="rule_id" class="form-label">规则ID <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="rule_id" name="rule_id"
+                                   value="{{ rule.rule_id or '' }}" {% if rule %}readonly{% else %}required{% endif %}
+                                   placeholder="如: R010">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="name" class="form-label">规则名称 <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="name" name="name"
+                                   value="{{ rule.name or '' }}" required placeholder="如: low_battery_failure">
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label for="priority" class="form-label">优先级 <span class="text-danger">*</span></label>
+                            <input type="number" class="form-control" id="priority" name="priority"
+                                   value="{{ rule.priority or 50 }}" min="1" max="100" required>
+                            <div class="form-text">1-100，数值越高优先级越高</div>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label for="base_confidence" class="form-label">基础置信度 <span class="text-danger">*</span></label>
+                            <input type="number" class="form-control" id="base_confidence" name="base_confidence"
+                                   value="{{ rule.base_confidence or 0.9 }}" min="0" max="1" step="0.01" required>
+                            <div class="form-text">0-1之间</div>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">状态</label>
+                            <div class="form-check mt-2">
+                                <input type="checkbox" class="form-check-input" id="enabled" name="enabled"
+                                       {% if rule is none or rule.enabled %}checked{% endif %}>
+                                <label class="form-check-label" for="enabled">启用</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="match_all" class="form-label">必须全部匹配（match_all）</label>
+                        <textarea class="form-control" id="match_all" name="match_all" rows="2"
+                                  placeholder="每行一个代码，如：&#10;RECOVERY_LOW_BATTERY&#10;RECOVERY_BOOTREASON_BLOCKED">{{ (rule.match_all or []) | join('\n') }}</textarea>
+                        <div class="form-text">所有列出的代码都必须出现在事件中才能匹配</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="match_any" class="form-label">匹配任一即可（match_any）</label>
+                        <textarea class="form-control" id="match_any" name="match_any" rows="2"
+                                  placeholder="每行一个代码，如：&#10;PACKAGE_VERIFY_FAILED&#10;PACKAGE_METADATA_MISMATCH">{{ (rule.match_any or []) | join('\n') }}</textarea>
+                        <div class="form-text">只要出现任意一个代码即可匹配</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="exclude_any" class="form-label">排除条件（exclude_any）</label>
+                        <textarea class="form-control" id="exclude_any" name="exclude_any" rows="2"
+                                  placeholder="每行一个代码，出现任意一个则不匹配">{{ (rule.exclude_any or []) | join('\n') }}</textarea>
+                        <div class="form-text">如果出现任意一个代码，则规则不匹配</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="match_stage" class="form-label">匹配阶段</label>
+                        <select class="form-select" id="match_stage" name="match_stage" multiple size="4">
+                            <option value="precheck" {% if rule and 'precheck' in rule.match_stage %}selected{% endif %}>precheck - 前置检查</option>
+                            <option value="package_prepare" {% if rule and 'package_prepare' in rule.match_stage %}selected{% endif %}>package_prepare - 包准备</option>
+                            <option value="apply_update" {% if rule and 'apply_update' in rule.match_stage %}selected{% endif %}>apply_update - 应用更新</option>
+                            <option value="reboot_wait" {% if rule and 'reboot_wait' in rule.match_stage %}selected{% endif %}>reboot_wait - 等待重启</option>
+                            <option value="post_reboot" {% if rule and 'post_reboot' in rule.match_stage %}selected{% endif %}>post_reboot - 重启后</option>
+                            <option value="post_validate" {% if rule and 'post_validate' in rule.match_stage %}selected{% endif %}>post_validate - 后置验证</option>
+                        </select>
+                        <div class="form-text">按住Ctrl可多选，不选则匹配所有阶段</div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="category" class="form-label">故障分类 <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="category" name="category"
+                                   value="{{ rule.category or '' }}" required placeholder="如: device_env_issue">
+                            <div class="form-text">大类，如 device_env_issue, boot_failure</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="root_cause" class="form-label">根因</label>
+                            <input type="text" class="form-control" id="root_cause" name="root_cause"
+                                   value="{{ rule.root_cause or '' }}" placeholder="如: low_battery">
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="next_action" class="form-label">建议动作</label>
+                        <textarea class="form-control" id="next_action" name="next_action" rows="2"
+                                  placeholder="诊断后的建议操作">{{ rule.next_action or '' }}</textarea>
+                    </div>
+
+                    <div class="mb-3">
+                        <button type="submit" class="btn btn-primary">保存</button>
+                        <a href="/rules" class="btn btn-outline-secondary">取消</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

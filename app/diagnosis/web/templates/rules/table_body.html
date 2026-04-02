@@ -1,0 +1,48 @@
+<table class="table table-hover">
+    <thead>
+        <tr>
+            <th>规则ID</th>
+            <th>名称</th>
+            <th>优先级</th>
+            <th>状态</th>
+            <th>故障分类</th>
+            <th>根因</th>
+            <th>操作</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for rule in rules %}
+        <tr id="rule-row-{{ rule.rule_id }}">
+            <td>{{ rule.rule_id }}</td>
+            <td>{{ rule.name }}</td>
+            <td>{{ rule.priority }}</td>
+            <td>
+                {% if rule.enabled %}
+                <span class="badge bg-success">启用</span>
+                {% else %}
+                <span class="badge bg-secondary">禁用</span>
+                {% endif %}
+            </td>
+            <td><span class="badge bg-info">{{ rule.category }}</span></td>
+            <td>{{ rule.root_cause or '-' }}</td>
+            <td>
+                <a href="/rules/{{ rule.rule_id }}/edit" class="btn btn-sm btn-outline-primary">编辑</a>
+                <button
+                    hx-delete="/rules/{{ rule.rule_id }}/delete"
+                    hx-target="#rules-table-body"
+                    hx-swap="innerHTML"
+                    hx-confirm="确定要删除此规则吗？"
+                    hx-indicator="#delete-indicator-{{ rule.rule_id }}"
+                    class="btn btn-sm btn-outline-danger">
+                    删除
+                    <span id="delete-indicator-{{ rule.rule_id }}" class="htmx-indicator spinner-border spinner-border-sm ms-1" role="status" aria-hidden="true"></span>
+                </button>
+            </td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="7" class="text-center text-muted">暂无规则</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>

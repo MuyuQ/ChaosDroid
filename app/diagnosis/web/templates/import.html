@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block title %}导入日志 - TraceLens{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 offset-md-2">
+        <h2 class="mb-4">导入日志</h2>
+
+        <!-- 导入结果区域 (HTMX 目标) -->
+        <div id="import-result" class="mb-3"></div>
+
+        <div class="card">
+            <div class="card-body">
+                <!-- 上传日志文件 - 使用 HTMX -->
+                <form hx-post="/import/upload"
+                      hx-encoding="multipart/form-data"
+                      hx-target="#import-result"
+                      hx-swap="innerHTML"
+                      hx-indicator="#upload-indicator"
+                      id="uploadForm">
+                    <div class="mb-3">
+                        <label for="files" class="form-label">选择日志文件/目录</label>
+                        <input type="file" class="form-control" id="files" name="files" multiple webkitdirectory directory>
+                        <div class="form-text">点击选择日志目录或多个日志文件</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="device_serial" class="form-label">设备序列号 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="device_serial_upload" name="device_serial" placeholder="SLY6R16C24003025" required pattern="[A-Z0-9]{16}" title="16位字母+数字组合">
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="test_type" class="form-label">测试类型 (可选)</label>
+                        <select class="form-select" id="test_type_upload" name="test_type">
+                            <option value="">-- 选择测试类型 --</option>
+                            <option value="ota_upgrade">OTA升级测试</option>
+                            <option value="stability">稳定性测试</option>
+                            <option value="monkey">Monkey测试</option>
+                            <option value="other">其他</option>
+                        </select>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">
+                        上传导入
+                        <span id="upload-indicator" class="htmx-indicator spinner-border spinner-border-sm ms-1" role="status" aria-hidden="true"></span>
+                    </button>
+                </form>
+
+                <hr class="my-4">
+                <p class="text-muted small">或输入服务器本地路径导入：</p>
+
+                <!-- 本地路径导入 - 使用 HTMX -->
+                <form hx-post="/import"
+                      hx-target="#import-result"
+                      hx-swap="innerHTML"
+                      hx-indicator="#path-indicator">
+                    <div class="mb-3">
+                        <label for="path" class="form-label">日志路径</label>
+                        <input type="text" class="form-control" id="path" name="path" placeholder="/path/to/evidence/directory" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="device_serial_path" class="form-label">设备序列号 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="device_serial_path" name="device_serial" placeholder="SLY6R16C24003025" required pattern="[A-Z0-9]{16}" title="16位字母+数字组合">
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="test_type_path" class="form-label">测试类型 (可选)</label>
+                        <select class="form-select" id="test_type_path" name="test_type">
+                            <option value="">-- 选择测试类型 --</option>
+                            <option value="ota_upgrade">OTA升级测试</option>
+                            <option value="stability">稳定性测试</option>
+                            <option value="monkey">Monkey测试</option>
+                            <option value="other">其他</option>
+                        </select>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">
+                        路径导入
+                        <span id="path-indicator" class="htmx-indicator spinner-border spinner-border-sm ms-1" role="status" aria-hidden="true"></span>
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <div class="mt-4">
+            <h5>支持的文件类型</h5>
+            <ul class="list-group">
+                <li class="list-group-item"><code>recovery.log</code> - Recovery模式日志</li>
+                <li class="list-group-item"><code>last_install.txt</code> - 安装结果摘要</li>
+                <li class="list-group-item"><code>update_engine.log</code> - A/B更新引擎日志</li>
+                <li class="list-group-item"><code>logcat.txt</code> - Android运行时日志</li>
+                <li class="list-group-item"><code>monkey.txt</code> - Monkey测试输出</li>
+                <li class="list-group-item"><code>device_snapshot.json</code> - 设备状态快照</li>
+                <li class="list-group-item"><code>run_timeline.json</code> - 阶段执行时间线</li>
+            </ul>
+        </div>
+    </div>
+</div>
+{% endblock %}

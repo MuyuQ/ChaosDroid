@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block title %}设备管理 - AegisOTA{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+    <h1>设备管理</h1>
+    <button class="btn btn-primary" hx-post="/api/devices/sync/html" hx-swap="innerHTML" hx-target="#device-list">
+        同步设备
+    </button>
+</div>
+
+<div id="device-list" class="card">
+    <table class="table">
+        <thead>
+            <tr>
+                <th>序列号</th>
+                <th>品牌/型号</th>
+                <th>系统版本</th>
+                <th>设备池</th>
+                <th>物理位置</th>
+                <th>状态</th>
+                <th>电量</th>
+                <th>健康度</th>
+                <th>最后在线</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for device in devices %}
+            <tr>
+                <td><strong>{{ device.serial }}</strong></td>
+                <td>{{ device.brand }} {{ device.model }}</td>
+                <td>{{ device.system_version }}</td>
+                <td>
+                    {% if device.pool_name %}
+                    <a href="/pools/{{ device.pool_id }}" style="text-decoration: none;">
+                        <span class="status-badge" style="background: var(--primary-color); color: white;">{{ device.pool_name }}</span>
+                    </a>
+                    {% else %}
+                    <span style="color: var(--text-muted);">-</span>
+                    {% endif %}
+                </td>
+                <td>{{ device.location or '-' }}</td>
+                <td>
+                    <span class="status-badge status-{{ device.status }}">{{ device.status }}</span>
+                </td>
+                <td>{{ device.battery_level }}%</td>
+                <td>
+                    <a href="#" hx-get="/api/devices/{{ device.serial }}/health-detail"
+                       hx-target="#modal-container" hx-swap="innerHTML"
+                       onclick="document.getElementById('modal-container').style.display='flex'"
+                       style="text-decoration: none; cursor: pointer;">
+                        <span class="{% if device.health_score >= 80 %}health-high{% elif device.health_score >= 50 %}health-medium{% else %}health-low{% endif %}"
+                              style="font-weight: 600;">
+                            {{ device.health_score }}%
+                        </span>
+                    </a>
+                </td>
+                <td>{{ device.last_seen_at }}</td>
+                <td>
+                    {% if device.status == 'quarantined' %}
+                    <button class="btn btn-sm btn-primary" hx-post="/api/devices/{{ device.serial }}/recover/html" hx-swap="outerHTML" hx-target="closest tr">
+                        恢复
+                    </button>
+                    {% elif device.status == 'idle' %}
+                    <button class="btn btn-sm btn-danger" hx-post="/api/devices/{{ device.serial }}/quarantine/html" hx-vals='{"reason": "手动隔离"}' hx-swap="outerHTML" hx-target="closest tr">
+                        隔离
+                    </button>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- 模态框容器 -->
+<div id="modal-container" class="modal-overlay" style="display: none;"
+     onclick="if(event.target === this) this.style.display='none'">
+</div>
+{% endblock %}

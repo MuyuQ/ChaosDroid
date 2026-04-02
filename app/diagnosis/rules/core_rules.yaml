@@ -1,0 +1,145 @@
+rules:
+  - rule_id: R001
+    name: low_battery_precheck_failure
+    priority: 100
+    enabled: true
+    match_all:
+      - RECOVERY_LOW_BATTERY
+    match_any: []
+    exclude_any: []
+    match_stage:
+      - precheck
+    category: device_env_issue
+    root_cause: low_battery
+    base_confidence: 0.98
+    next_action: 请将设备充电至阈值以上后重试
+
+  - rule_id: R002
+    name: bootreason_blocked_failure
+    priority: 100
+    enabled: true
+    match_all:
+      - RECOVERY_BOOTREASON_BLOCKED
+    match_any: []
+    exclude_any: []
+    match_stage:
+      - precheck
+    category: device_env_issue
+    root_cause: bootreason_blocklisted
+    base_confidence: 0.95
+    next_action: 请检查设备启动原因并重试
+
+  - rule_id: R003
+    name: virtual_ab_space_exceeded
+    priority: 100
+    enabled: true
+    match_all:
+      - DP_ALLOCATABLE_SPACE_EXCEEDED
+    match_any: []
+    exclude_any: []
+    match_stage:
+      - package_prepare
+    category: dynamic_partition_space
+    root_cause: virtual_ab_allocatable_space_exceeded
+    base_confidence: 0.95
+    next_action: 请检查动态分区配置和可用空间
+
+  - rule_id: R004
+    name: boot_failure_after_update
+    priority: 90
+    enabled: true
+    match_all:
+      - UE_STATUS_UPDATED_NEED_REBOOT
+      - BOOT_NOT_COMPLETED
+    match_any:
+      - LAUNCHER_NOT_READY
+    exclude_any: []
+    match_stage:
+      - post_reboot
+    category: boot_failure
+    root_cause: boot_not_completed_after_update
+    base_confidence: 0.92
+    next_action: 请检查启动日志和系统初始化状态
+
+  - rule_id: R005
+    name: monkey_stability_failure
+    priority: 90
+    enabled: true
+    match_all:
+      - MONKEY_FATAL_EVENT
+    match_any: []
+    exclude_any: []
+    match_stage:
+      - post_validate
+    category: stability_failure
+    root_cause: monkey_crash_or_anr_after_upgrade
+    base_confidence: 0.95
+    next_action: 请分析崩溃/ANR日志，检查是否存在回归问题
+
+  - rule_id: R006
+    name: install_aborted_retrying
+    priority: 80
+    enabled: true
+    match_all:
+      - RECOVERY_INSTALL_ABORTED
+      - RECOVERY_RETRY_ATTEMPT
+    match_any: []
+    exclude_any: []
+    match_stage:
+      - apply_update
+    category: retryable_install_error
+    root_cause: install_aborted_retrying
+    base_confidence: 0.88
+    next_action: 请等待重试完成或检查重试日志
+
+  - rule_id: R007
+    name: package_validation_failure
+    priority: 95
+    enabled: true
+    match_all: []
+    match_any:
+      - PACKAGE_VERIFY_FAILED
+      - PACKAGE_METADATA_MISMATCH
+      - LAST_INSTALL_ERROR_PACKAGE_VERIFY_FAILED
+    exclude_any: []
+    match_stage:
+      - package_prepare
+      - apply_update
+    category: package_issue
+    root_cause: package_validation_failure
+    base_confidence: 0.90
+    next_action: 请验证OTA包完整性和元数据
+
+  - rule_id: R008
+    name: transport_error_failure
+    priority: 85
+    enabled: true
+    match_all: []
+    match_any:
+      - ADB_TRANSPORT_ERROR
+      - DEVICE_OFFLINE_DURING_UPDATE
+    exclude_any: []
+    match_stage:
+      - apply_update
+      - reboot_wait
+    category: transport_or_device_env_issue
+    root_cause: adb_transport_failure
+    base_confidence: 0.85
+    next_action: 请检查ADB连接和设备状态
+
+  - rule_id: R009
+    name: success_boot_complete
+    priority: 50
+    enabled: true
+    match_all:
+      - UE_BOOT_SUCCESS
+    match_any: []
+    exclude_any:
+      - BOOT_NOT_COMPLETED
+      - MONKEY_FATAL_EVENT
+    match_stage:
+      - post_reboot
+    category: success
+    root_cause: null
+    base_confidence: 0.95
+    next_action: 无需处理

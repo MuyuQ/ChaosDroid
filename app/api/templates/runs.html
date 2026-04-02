@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block title %}任务列表 - AegisOTA{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+    <h1>任务列表</h1>
+    <a href="/runs/create" class="btn btn-primary">创建任务</a>
+</div>
+
+<div class="card">
+    <table class="table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>升级计划</th>
+                <th>设备</th>
+                <th>状态</th>
+                <th>结果</th>
+                <th>耗时</th>
+                <th>创建时间</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for run in runs %}
+            <tr>
+                <td><a href="/runs/{{ run.id }}"><strong>#{{ run.id }}</strong></a></td>
+                <td>{{ run.plan_name }}</td>
+                <td>{{ run.device_serial }}</td>
+                <td>
+                    <span class="status-badge status-{{ run.status }}">{{ run.status }}</span>
+                </td>
+                <td>{{ run.result }}</td>
+                <td>{{ run.duration }}s</td>
+                <td>{{ run.started_at }}</td>
+                <td>
+                    <a href="/runs/{{ run.id }}" class="btn btn-sm btn-secondary">详情</a>
+                    {% if run.status in ['queued', 'reserved', 'running'] %}
+                    <button class="btn btn-sm btn-danger" hx-post="/api/runs/{{ run.id }}/abort" hx-swap="outerHTML" hx-target="closest tr">
+                        终止
+                    </button>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

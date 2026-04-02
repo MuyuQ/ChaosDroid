@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+
+{% block title %}系统设置 - AegisOTA{% endblock %}
+
+{% block content %}
+<h1>系统设置</h1>
+
+<div class="card" style="margin-top: 1.5rem;">
+    <div class="card-header">升级包目录配置</div>
+    <table class="table" style="margin-top: 0.5rem;">
+        <tr>
+            <td style="width: 150px;">升级包根目录</td>
+            <td><code>{{ packages_dir }}</code></td>
+        </tr>
+        <tr>
+            <td>全量包目录</td>
+            <td><code>{{ full_dir }}</code></td>
+        </tr>
+        <tr>
+            <td>差分包目录</td>
+            <td><code>{{ incremental_dir }}</code></td>
+        </tr>
+    </table>
+</div>
+
+<div class="card" style="margin-top: 1.5rem;">
+    <div class="card-header">全量升级包 ({{ full_packages|length }} 个文件)</div>
+    <div style="margin-top: 0.5rem;">
+        {% if full_packages %}
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>文件名</th>
+                    <th>大小</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in full_packages %}
+                <tr>
+                    <td>{{ p.name }}</td>
+                    <td>{{ (p.size / 1024 / 1024)|round(2) }} MB</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div style="color: var(--text-muted); padding: 1rem;">
+            暂无升级包文件，请将升级包放入对应目录
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card" style="margin-top: 1.5rem;">
+    <div class="card-header">差分升级包 ({{ incremental_packages|length }} 个文件)</div>
+    <div style="margin-top: 0.5rem;">
+        {% if incremental_packages %}
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>文件名</th>
+                    <th>大小</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in incremental_packages %}
+                <tr>
+                    <td>{{ p.name }}</td>
+                    <td>{{ (p.size / 1024 / 1024)|round(2) }} MB</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div style="color: var(--text-muted); padding: 1rem;">
+            暂无升级包文件，请将升级包放入对应目录
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card" style="margin-top: 1.5rem;">
+    <div class="card-header">执行配置</div>
+    <form hx-post="/settings/config" hx-swap="innerHTML" hx-target="#config-result" style="margin-top: 0.5rem;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <table class="table">
+            <tr>
+                <td style="width: 200px;">
+                    <label class="form-label" style="margin: 0;">最大并发任务数</label>
+                </td>
+                <td>
+                    <input type="number" name="max_concurrent_runs" value="{{ max_concurrent_runs }}"
+                           class="form-input" style="width: 100px;" min="1" max="20">
+                </td>
+            </tr>
+            <tr>
+                <td>
+                    <label class="form-label" style="margin: 0;">默认超时时间 (秒)</label>
+                </td>
+                <td>
+                    <input type="number" name="default_timeout" value="{{ default_timeout }}"
+                           class="form-input" style="width: 100px;" min="60" max="3600">
+                </td>
+            </tr>
+            <tr>
+                <td>
+                    <label class="form-label" style="margin: 0;">重启等待超时 (秒)</label>
+                </td>
+                <td>
+                    <input type="number" name="reboot_wait_timeout" value="{{ reboot_wait_timeout }}"
+                           class="form-input" style="width: 100px;" min="30" max="600">
+                </td>
+            </tr>
+        </table>
+
+        <div class="card-header" style="margin-top: 1rem;">Monkey 测试配置</div>
+        <table class="table" style="margin-top: 0.5rem;">
+            <tr>
+                <td style="width: 200px;">
+                    <label class="form-label" style="margin: 0;">默认事件数</label>
+                </td>
+                <td>
+                    <input type="number" name="monkey_default_count" value="{{ monkey_default_count }}"
+                           class="form-input" style="width: 120px;" min="100" max="100000">
+                </td>
+            </tr>
+            <tr>
+                <td>
+                    <label class="form-label" style="margin: 0;">事件间隔 (ms)</label>
+                </td>
+                <td>
+                    <input type="number" name="monkey_throttle" value="{{ monkey_throttle }}"
+                           class="form-input" style="width: 100px;" min="10" max="1000">
+                </td>
+            </tr>
+        </table>
+
+        <button type="submit" class="btn btn-primary" style="margin-top: 1rem;">
+            保存配置
+        </button>
+    </form>
+    <div id="config-result" style="margin-top: 1rem;"></div>
+</div>
+{% endblock %}

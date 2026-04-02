@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block title %}仪表盘 - AegisOTA{% endblock %}
+
+{% block content %}
+<h1 style="margin-bottom: 2rem;">仪表盘</h1>
+
+<div class="grid grid-cols-4">
+    <div class="card stat-card">
+        <div class="stat-value">{{ stats.total_devices }}</div>
+        <div class="stat-label">设备总数</div>
+    </div>
+    <div class="card stat-card">
+        <div class="stat-value">{{ stats.idle_devices }}</div>
+        <div class="stat-label">空闲设备</div>
+    </div>
+    <div class="card stat-card">
+        <div class="stat-value">{{ stats.running_tasks }}</div>
+        <div class="stat-label">运行中任务</div>
+    </div>
+    <div class="card stat-card">
+        <div class="stat-value">{{ stats.today_tasks }}</div>
+        <div class="stat-label">今日任务</div>
+    </div>
+</div>
+
+<div class="grid grid-cols-2" style="margin-top: 2rem;">
+    <div class="card">
+        <div class="card-header">设备状态分布</div>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>状态</th>
+                    <th>数量</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><span class="status-badge status-idle">空闲</span></td>
+                    <td>{{ stats.idle_devices }}</td>
+                </tr>
+                <tr>
+                    <td><span class="status-badge status-busy">忙碌</span></td>
+                    <td>{{ stats.busy_devices }}</td>
+                </tr>
+                <tr>
+                    <td><span class="status-badge status-offline">离线</span></td>
+                    <td>{{ stats.offline_devices }}</td>
+                </tr>
+                <tr>
+                    <td><span class="status-badge status-quarantined">隔离</span></td>
+                    <td>{{ stats.quarantined_devices }}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <div class="card-header">最近任务</div>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>设备</th>
+                    <th>状态</th>
+                    <th>结果</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for run in recent_runs %}
+                <tr>
+                    <td><a href="/runs/{{ run.id }}">#{{ run.id }}</a></td>
+                    <td>{{ run.device_serial }}</td>
+                    <td><span class="status-badge status-{{ run.status }}">{{ run.status }}</span></td>
+                    <td>{{ run.result or '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

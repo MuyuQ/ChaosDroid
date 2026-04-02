@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+
+{% block title %}故障检索 - TraceLens{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <h2 class="mb-4">故障检索</h2>
+    </div>
+</div>
+
+<!-- 搜索表单 -->
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">搜索条件</div>
+            <div class="card-body">
+                <form action="/cases" method="get">
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label for="keyword" class="form-label">关键词</label>
+                            <input type="text" class="form-control" id="keyword" name="keyword"
+                                   value="{{ keyword or '' }}" placeholder="输入关键词搜索...">
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label for="category" class="form-label">故障分类</label>
+                            <select class="form-select" id="category" name="category">
+                                <option value="">全部</option>
+                                {% for cat in categories %}
+                                <option value="{{ cat }}" {% if category == cat %}selected{% endif %}>{{ cat }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label for="root_cause" class="form-label">根因</label>
+                            <select class="form-select" id="root_cause" name="root_cause">
+                                <option value="">全部</option>
+                                {% for cause in root_causes %}
+                                <option value="{{ cause }}" {% if root_cause == cause %}selected{% endif %}>{{ cause }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-2 mb-3 d-flex align-items-end">
+                            <button type="submit" class="btn btn-primary me-2">搜索</button>
+                            <a href="/cases" class="btn btn-outline-secondary">重置</a>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 统计卡片 -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h5 class="card-title">{{ total_cases }}</h5>
+                <p class="card-text text-muted">历史案例总数</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h5 class="card-title text-info">{{ categories|length }}</h5>
+                <p class="card-text text-muted">故障分类数</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h5 class="card-title text-success">{{ root_causes|length }}</h5>
+                <p class="card-text text-muted">根因类型数</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h5 class="card-title text-warning">{{ filtered_count }}</h5>
+                <p class="card-text text-muted">当前筛选结果</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 搜索结果列表 -->
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">历史案例列表</div>
+            <div class="card-body">
+                {% if cases %}
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>任务ID</th>
+                            <th>故障分类</th>
+                            <th>根因</th>
+                            <th>特征摘要</th>
+                            <th>更新时间</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for case in cases %}
+                        <tr>
+                            <td><a href="/runs/{{ case.run_id }}">{{ case.run_id }}</a></td>
+                            <td>
+                                <span class="badge bg-info">{{ case.category }}</span>
+                            </td>
+                            <td>{{ case.root_cause }}</td>
+                            <td>
+                                <small class="text-muted">{{ case.feature_text[:50] }}{% if case.feature_text|length > 50 %}...{% endif %}</small>
+                            </td>
+                            <td>{{ case.updated_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                            <td>
+                                <a href="/runs/{{ case.run_id }}" class="btn btn-sm btn-outline-primary">详情</a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <div class="text-center text-muted py-4">
+                    <p>暂无历史案例数据</p>
+                    <p class="small">完成诊断后的任务会自动加入案例库</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 操作按钮 -->
+<div class="row mt-4">
+    <div class="col-md-12">
+        <a href="/import" class="btn btn-primary">导入新日志</a>
+        <a href="/api/cases/rebuild" class="btn btn-outline-secondary ms-2" onclick="return confirm('确定要重建案例索引吗？')">重建索引</a>
+    </div>
+</div>
+{% endblock %}

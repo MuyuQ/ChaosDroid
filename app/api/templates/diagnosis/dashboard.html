@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+
+{% block title %}仪表盘 - TraceLens{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <h2 class="mb-4">仪表盘</h2>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-2">
+        <a href="/?filter=all"
+           hx-get="/?filter=all"
+           hx-target="#task-list"
+           hx-swap="innerHTML"
+           class="card text-center {% if current_filter == 'all' %}border-primary{% endif %}"
+           style="text-decoration: none; color: inherit;">
+            <div class="card-body">
+                <h5 class="card-title">{{ total_count }}</h5>
+                <p class="card-text text-muted">全部任务</p>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-2">
+        <a href="/?filter=diagnosed"
+           hx-get="/?filter=diagnosed"
+           hx-target="#task-list"
+           hx-swap="innerHTML"
+           class="card text-center {% if current_filter == 'diagnosed' %}border-info{% endif %}"
+           style="text-decoration: none; color: inherit;">
+            <div class="card-body">
+                <h5 class="card-title text-info">{{ diagnosed_count }}</h5>
+                <p class="card-text text-muted">已诊断</p>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-2">
+        <a href="/?filter=passed"
+           hx-get="/?filter=passed"
+           hx-target="#task-list"
+           hx-swap="innerHTML"
+           class="card text-center {% if current_filter == 'passed' %}border-success{% endif %}"
+           style="text-decoration: none; color: inherit;">
+            <div class="card-body">
+                <h5 class="card-title text-success">{{ passed_count }}</h5>
+                <p class="card-text text-muted">成功任务</p>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-2">
+        <a href="/?filter=failed"
+           hx-get="/?filter=failed"
+           hx-target="#task-list"
+           hx-swap="innerHTML"
+           class="card text-center {% if current_filter == 'failed' %}border-danger{% endif %}"
+           style="text-decoration: none; color: inherit;">
+            <div class="card-body">
+                <h5 class="card-title text-danger">{{ failed_count }}</h5>
+                <p class="card-text text-muted">失败任务</p>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-2">
+        <a href="/?filter=pending"
+           hx-get="/?filter=pending"
+           hx-target="#task-list"
+           hx-swap="innerHTML"
+           class="card text-center {% if current_filter == 'pending' %}border-secondary{% endif %}"
+           style="text-decoration: none; color: inherit;">
+            <div class="card-body">
+                <h5 class="card-title text-secondary">{{ pending_count }}</h5>
+                <p class="card-text text-muted">待确定</p>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-2">
+        <a href="/?filter=undiagnosed"
+           hx-get="/?filter=undiagnosed"
+           hx-target="#task-list"
+           hx-swap="innerHTML"
+           class="card text-center {% if current_filter == 'undiagnosed' %}border-warning{% endif %}"
+           style="text-decoration: none; color: inherit;">
+            <div class="card-body">
+                <h5 class="card-title text-warning">{{ total_count - diagnosed_count }}</h5>
+                <p class="card-text text-muted">未诊断</p>
+            </div>
+        </a>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>
+                    {% if current_filter == 'all' or current_filter is none %}最近任务{% else %}{% if current_filter == 'diagnosed' %}已诊断{% endif %}{% if current_filter == 'passed' %}成功{% endif %}{% if current_filter == 'failed' %}失败{% endif %}{% if current_filter == 'pending' %}待确定{% endif %}{% if current_filter == 'undiagnosed' %}未诊断{% endif %}任务{% endif %}
+                    <span class="badge bg-light text-dark ms-2">{{ runs|length }} 条</span>
+                </span>
+                {% if current_filter != 'all' and current_filter is not none %}
+                <a href="/" hx-get="/" hx-target="#task-list" hx-swap="innerHTML" class="btn btn-sm btn-outline-secondary">清除筛选</a>
+                {% endif %}
+            </div>
+            <div class="card-body" id="task-list">
+                {% include "dashboard_task_list.html" %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-12">
+        <a href="/import" class="btn btn-primary">导入新日志</a>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title %}规则管理 - TraceLens{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <h2 class="mb-4">规则管理</h2>
+    </div>
+</div>
+
+<!-- 规则操作结果区域 -->
+<div id="rule-result" class="mb-3"></div>
+
+<div class="row mb-3">
+    <div class="col-md-12">
+        <a href="/rules/new" class="btn btn-primary">新增规则</a>
+        <a href="/api/rules/export" class="btn btn-outline-secondary">导出到YAML</a>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">诊断规则列表</div>
+            <div class="card-body" id="rules-table-body">
+                {% include "rules/table_body.html" %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

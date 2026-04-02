@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block title %}任务 #{{ run.id }} - AegisOTA{% endblock %}
+
+{% block content %}
+<h1>任务 #{{ run.id }}</h1>
+
+<div class="grid grid-cols-2" style="margin-top: 2rem;">
+    <div class="card">
+        <div class="card-header">基本信息</div>
+        <table class="table">
+            <tr>
+                <th>升级计划</th>
+                <td>{{ run.plan_name }}</td>
+            </tr>
+            <tr>
+                <th>设备</th>
+                <td>{{ run.device_serial }}</td>
+            </tr>
+            <tr>
+                <th>状态</th>
+                <td><span class="status-badge status-{{ run.status }}">{{ run.status }}</span></td>
+            </tr>
+            <tr>
+                <th>结果</th>
+                <td>{{ run.result }}</td>
+            </tr>
+            <tr>
+                <th>开始时间</th>
+                <td>{{ run.started_at }}</td>
+            </tr>
+            <tr>
+                <th>结束时间</th>
+                <td>{{ run.ended_at }}</td>
+            </tr>
+            <tr>
+                <th>执行时长</th>
+                <td>{{ run.duration }} 秒</td>
+            </tr>
+            {% if run.failure_category != '-' %}
+            <tr>
+                <th>失败分类</th>
+                <td>{{ run.failure_category }}</td>
+            </tr>
+            {% endif %}
+        </table>
+
+        {% if run.total_iterations > 1 %}
+        <div class="alert alert-warning" style="margin-top: 1rem;">
+            <strong>压力测试：</strong>共 {{ run.total_iterations }} 次迭代，当前第 {{ run.current_iteration }} 次
+        </div>
+        {% endif %}
+
+        {% if run.monkey_enabled %}
+        <div class="alert alert-info" style="margin-top: 1rem;">
+            <strong>Monkey 测试已启用：</strong>{{ run.monkey_event_count }} 事件，间隔 {{ run.monkey_throttle }}ms
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <div class="card-header">操作</div>
+        <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+            <a href="/api/reports/{{ run.id }}/html" class="btn btn-primary" target="_blank">
+                查看 HTML 报告
+            </a>
+            <a href="/api/reports/{{ run.id }}/markdown" class="btn btn-secondary" target="_blank">
+                下载 Markdown
+            </a>
+            <a href="/api/reports/{{ run.id }}/artifacts" class="btn btn-secondary" target="_blank">
+                查看产物
+            </a>
+        </div>
+
+        {% if run.summary != '-' %}
+        <div style="margin-top: 1.5rem;">
+            <h3>摘要</h3>
+            <p>{{ run.summary }}</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% if steps %}
+<div class="card" style="margin-top: 2rem;">
+    <div class="card-header">执行步骤</div>
+    <div class="timeline">
+        {% for step in steps %}
+        <div class="timeline-item {% if step.status == 'success' %}success{% elif step.status == 'failed' %}failure{% endif %}">
+            <div>
+                <strong>{{ step.step_name }}</strong>
+                <span class="status-badge status-{{ step.status }}" style="margin-left: 0.5rem;">{{ step.status }}</span>
+            </div>
+            <div style="color: var(--text-muted); font-size: 0.875rem;">
+                {% if step.duration != '-' %}
+                耗时: {{ step.duration }}s
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+{% endblock %}

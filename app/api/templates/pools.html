@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+
+{% block title %}设备池管理 - AegisOTA{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="card">
+        <div class="card-header">
+            <span>设备池管理</span>
+            <button class="btn btn-primary" onclick="showCreateModal()">创建设备池</button>
+        </div>
+
+        <div id="pools-list">
+            {% if pools %}
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>名称</th>
+                        <th>用途</th>
+                        <th>保留比例</th>
+                        <th>设备数</th>
+                        <th>可用</th>
+                        <th>状态</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for pool in pools %}
+                    <tr>
+                        <td>{{ pool.id }}</td>
+                        <td><strong>{{ pool.name }}</strong></td>
+                        <td>
+                            <span class="badge badge-{{ 'primary' if pool.purpose == 'stable' else 'warning' if pool.purpose == 'stress' else 'danger' }}">
+                                {{ pool.purpose }}
+                            </span>
+                        </td>
+                        <td>{{ (pool.reserved_ratio * 100)|int }}%</td>
+                        <td>{{ pool.total_devices }}</td>
+                        <td>{{ pool.available_devices }}</td>
+                        <td>
+                            <span class="status-badge status-{{ 'active' if pool.enabled else 'inactive' }}">
+                                {{ '启用' if pool.enabled else '禁用' }}
+                            </span>
+                        </td>
+                        <td>
+                            <button class="btn btn-sm btn-secondary" onclick="showPoolDetail({{ pool.id }})">详情</button>
+                            <button class="btn btn-sm btn-danger" onclick="deletePool({{ pool.id }})">删除</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="empty-state">
+                <p>暂无设备池</p>
+                <button class="btn btn-primary" onclick="initDefaultPools()">初始化默认池</button>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- 创建设备池模态框 -->
+<div id="createModal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>创建设备池</h3>
+            <span class="close" onclick="closeCreateModal()">&times;</span>
+        </div>
+        <form id="createForm" onsubmit="createPool(event)">
+            <div class="form-group">
+                <label for="name">名称</label>
+                <input type="text" id="name" name="name" required>
+            </div>
+            <div class="form-group">
+                <label for="purpose">用途</label>
+                <select id="purpose" name="purpose" required>
+                    <option value="stable">稳定测试</option>
+                    <option value="stress">压力测试</option>
+                    <option value="emergency">应急池</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="reserved_ratio">保留比例</label>
+                <input type="number" id="reserved_ratio" name="reserved_ratio" value="0.2" step="0.1" min="0" max="1">
+            </div>
+            <div class="form-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeCreateModal()">取消</button>
+                <button type="submit" class="btn btn-primary">创建</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function showCreateModal() {
+    document.getElementById('createModal').style.display = 'block';
+}
+
+function closeCreateModal() {
+    document.getElementById('createModal').style.display = 'none';
+}
+
+function createPool(event) {
+    event.preventDefault();
+    const form = document.getElementById('createForm');
+    const data = {
+        name: form.name.value,
+        purpose: form.purpose.value,
+        reserved_ratio: parseFloat(form.reserved_ratio.value),
+    };
+
+    fetch('/api/pools', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    }).then(response => {
+        if (response.ok) {
+            location.reload();
+        } else {
+            response.json().then(data => alert(data.detail || '创建失败'));
+        }
+    });
+}
+
+function showPoolDetail(poolId) {
+    window.location.href = '/pools/' + poolId;
+}
+
+function deletePool(poolId) {
+    if (confirm('确定要删除这个设备池吗？')) {
+        fetch('/api/pools/' + poolId, {
+            method: 'DELETE',
+        }).then(response => {
+            if (response.ok) {
+                location.reload();
+            }
+        });
+    }
+}
+
+function initDefaultPools() {
+    fetch('/api/pools/init', {
+        method: 'POST',
+    }).then(response => {
+        if (response.ok) {
+            location.reload();
+        }
+    });
+}
+
+// 点击模态框外部关闭
+window.onclick = function(event) {
+    const modal = document.getElementById('createModal');
+    if (event.target == modal) {
+        closeCreateModal();
+    }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,1 @@
+# Static files package (CSS, JS, images)

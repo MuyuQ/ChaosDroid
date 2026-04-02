@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+
+{% block title %}创建任务 - AegisOTA{% endblock %}
+
+{% block content %}
+<h1>创建升级任务</h1>
+
+<div class="card" style="margin-top: 2rem;">
+    <form hx-post="/api/runs/form" hx-swap="innerHTML" hx-target="#result">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        <!-- 升级计划选择 - 突出显示 -->
+        <div class="form-group" style="margin-bottom: 2rem;">
+            <label class="form-label" style="font-size: 1.2rem; font-weight: 600; margin-bottom: 1rem; display: block;">升级计划</label>
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem;">
+                {% for plan in plans %}
+                <label class="plan-card" style="
+                    display: block;
+                    padding: 1.25rem;
+                    border: 2px solid var(--border-color);
+                    border-radius: 8px;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                ">
+                    <input type="radio" name="plan_id" value="{{ plan.id }}" required
+                           style="margin-right: 0.75rem; width: 18px; height: 18px; vertical-align: middle;"
+                           onchange="updatePlanSelection(this)">
+                    <div style="display: inline-block; vertical-align: middle;">
+                        <div style="font-weight: 600; font-size: 1.1rem;">{{ plan.name }}</div>
+                        <div style="color: var(--text-muted); font-size: 0.875rem; margin-top: 0.25rem;">
+                            {{ plan.upgrade_type.value if plan.upgrade_type.value else plan.upgrade_type }}
+                            {% if plan.target_build %} → {{ plan.target_build }}{% endif %}
+                        </div>
+                    </div>
+                </label>
+                {% endfor %}
+                {% if not plans %}
+                <p style="color: var(--text-muted);">暂无升级计划，请先创建升级计划</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- 设备选择 - 多选，按位置分组 -->
+        <div class="form-group" style="margin-bottom: 2rem;">
+            <label class="form-label" style="font-size: 1.2rem; font-weight: 600; margin-bottom: 1rem; display: block;">
+                选择设备
+                <span style="font-weight: normal; color: var(--text-muted); font-size: 0.875rem;">（可多选，留空自动分配）</span>
+            </label>
+
+            {% if devices_by_location %}
+            <div style="max-height: 400px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px;">
+                {% for location, location_devices in devices_by_location.items() %}
+                <div class="location-group" style="border-bottom: 1px solid var(--border-color);">
+                    <div style="background: var(--bg-secondary); padding: 0.75rem 1rem; font-weight: 600; display: flex; align-items: center; justify-content: space-between;">
+                        <span>{{ location }}</span>
+                        <label style="font-weight: normal; font-size: 0.875rem;">
+                            <input type="checkbox" onchange="toggleLocationDevices(this, '{{ location }}')">
+                            全选
+                        </label>
+                    </div>
+                    <div style="padding: 0.5rem;">
+                        {% for device in location_devices %}
+                        <label style="display: flex; align-items: center; padding: 0.5rem 0.75rem; cursor: pointer; border-radius: 4px;"
+                               onmouseover="this.style.background='var(--bg-secondary)'"
+                               onmouseout="this.style.background='transparent'">
+                            <input type="checkbox" name="device_serials" value="{{ device.serial }}"
+                                   data-location="{{ location }}"
+                                   onchange="updateSelectedDevices()"
+                                   style="margin-right: 0.75rem; width: 16px; height: 16px;">
+                            <span style="flex: 1;">
+                                <code style="font-size: 0.9rem;">{{ device.serial }}</code>
+                            </span>
+                            <span style="color: var(--text-muted); font-size: 0.875rem;">
+                                {{ device.brand }} {{ device.model }}
+                            </span>
+                            <span class="status-badge status-{{ device.status }}" style="margin-left: 0.75rem; font-size: 0.75rem;">
+                                {{ device.status }}
+                            </span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p style="color: var(--text-muted); padding: 1rem;">暂无可用设备</p>
+            {% endif %}
+        </div>
+
+        <!-- 已选设备显示 -->
+        <div id="selected-devices" style="margin-bottom: 2rem; display: none;">
+            <label class="form-label" style="font-size: 1rem; font-weight: 600; margin-bottom: 0.75rem; display: block;">
+                已选设备 (<span id="selected-count">0</span> 台)
+            </label>
+            <div id="selected-list" style="display: flex; flex-wrap: wrap; gap: 0.5rem; padding: 1rem; background: var(--bg-secondary); border-radius: 8px;">
+            </div>
+        </div>
+
+        <!-- 压力测试配置 -->
+        <div style="border-top: 1px solid var(--border-color); padding-top: 1.5rem;">
+            <h3 style="font-size: 1rem; margin-bottom: 1rem;">压力测试选项</h3>
+
+            <div class="form-group">
+                <label class="form-label">升级次数</label>
+                <input type="number" name="upgrade_count" value="1" min="1" max="100"
+                       class="form-input" style="width: 100px;">
+                <span style="color: var(--text-muted); margin-left: 0.5rem; font-size: 0.875rem;">设为 1 表示单次升级</span>
+            </div>
+
+            <div class="form-group" style="margin-top: 0.5rem;">
+                <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem;">
+                    <input type="checkbox" name="stop_on_failure" value="true" checked style="width: 16px; height: 16px;">
+                    失败时停止后续迭代
+                </label>
+            </div>
+
+            <div class="form-group" style="margin-top: 0.5rem;">
+                <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem;">
+                    <input type="checkbox" name="enable_cycle_test" value="true" id="cycle-toggle"
+                           onchange="toggleCycleOptions()" style="width: 16px; height: 16px;">
+                    启用循环升级测试 (A版本 ↔ B版本)
+                </label>
+                <div id="cycle-hint" style="display: none; margin-top: 0.5rem; padding-left: 1.5rem; color: var(--text-muted); font-size: 0.8rem;">
+                    循环测试：先升级到目标版本，再回滚到源版本，循环往复。需要升级计划配置源版本和目标版本。
+                </div>
+            </div>
+        </div>
+
+        <!-- Monkey 测试配置 -->
+        <div style="border-top: 1px solid var(--border-color); padding-top: 1.5rem; margin-top: 1.5rem;">
+            <h3 style="font-size: 1rem; margin-bottom: 1rem;">Monkey 测试选项</h3>
+
+            <div class="form-group">
+                <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem;">
+                    <input type="checkbox" name="monkey_enabled" value="true" id="monkey-toggle"
+                           onchange="toggleMonkeyOptions()" style="width: 16px; height: 16px;">
+                    启用 Monkey 稳定性测试
+                </label>
+            </div>
+
+            <div id="monkey-options" style="display: none; margin-top: 0.5rem; padding-left: 1.5rem; border-left: 2px solid var(--border-color);">
+                <div class="form-group">
+                    <label class="form-label" style="font-size: 0.875rem;">事件数量</label>
+                    <input type="number" name="monkey_event_count" value="1000" min="100"
+                           class="form-input" style="width: 120px;">
+                    <span style="color: var(--text-muted); margin-left: 0.5rem; font-size: 0.75rem;">默认 1000</span>
+                </div>
+                <div class="form-group" style="margin-top: 0.5rem;">
+                    <label class="form-label" style="font-size: 0.875rem;">事件间隔 (ms)</label>
+                    <input type="number" name="monkey_throttle" value="50" min="10"
+                           class="form-input" style="width: 120px;">
+                    <span style="color: var(--text-muted); margin-left: 0.5rem; font-size: 0.75rem;">默认 50ms</span>
+                </div>
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="margin-top: 2rem; padding: 0.75rem 2rem; font-size: 1rem;">
+            创建任务
+        </button>
+    </form>
+
+    <div id="result" style="margin-top: 1rem;"></div>
+</div>
+
+<style>
+.plan-card:has(input:checked) {
+    border-color: var(--primary-color);
+    background: rgba(37, 99, 235, 0.05);
+}
+.plan-card:hover {
+    border-color: var(--primary-color);
+}
+</style>
+
+<script>
+function toggleMonkeyOptions() {
+    var checkbox = document.getElementById('monkey-toggle');
+    var options = document.getElementById('monkey-options');
+    options.style.display = checkbox.checked ? 'block' : 'none';
+}
+
+function toggleCycleOptions() {
+    var checkbox = document.getElementById('cycle-toggle');
+    var hint = document.getElementById('cycle-hint');
+    hint.style.display = checkbox.checked ? 'block' : 'none';
+}
+
+function toggleLocationDevices(checkbox, location) {
+    var devices = document.querySelectorAll('input[data-location="' + location + '"]');
+    devices.forEach(function(device) {
+        device.checked = checkbox.checked;
+    });
+    updateSelectedDevices();
+}
+
+function updateSelectedDevices() {
+    var checked = document.querySelectorAll('input[name="device_serials"]:checked');
+    var container = document.getElementById('selected-devices');
+    var list = document.getElementById('selected-list');
+    var count = document.getElementById('selected-count');
+
+    if (checked.length > 0) {
+        container.style.display = 'block';
+        count.textContent = checked.length;
+
+        var html = '';
+        checked.forEach(function(device) {
+            var label = device.parentElement.querySelector('code');
+            html += '<span style="background: var(--primary-color); color: white; padding: 0.25rem 0.75rem; border-radius: 4px; font-size: 0.875rem;">' +
+                    label.textContent +
+                    ' <button type="button" onclick="removeDevice(\'' + device.value + '\')" style="background: none; border: none; color: white; cursor: pointer; margin-left: 0.25rem;">&times;</button>' +
+                    '</span>';
+        });
+        list.innerHTML = html;
+    } else {
+        container.style.display = 'none';
+    }
+}
+
+function removeDevice(serial) {
+    var device = document.querySelector('input[name="device_serials"][value="' + serial + '"]');
+    if (device) {
+        device.checked = false;
+        updateSelectedDevices();
+    }
+}
+
+function updatePlanSelection(radio) {
+    // 移除所有选中样式
+    document.querySelectorAll('.plan-card').forEach(function(card) {
+        card.style.borderColor = 'var(--border-color)';
+        card.style.background = 'transparent';
+    });
+    // 添加选中样式
+    if (radio.checked) {
+        radio.closest('.plan-card').style.borderColor = 'var(--primary-color)';
+        radio.closest('.plan-card').style.background = 'rgba(37, 99, 235, 0.05)';
+    }
+}
+</script>
+{% endblock %}
