@@ -55,7 +55,7 @@ async def health_check():
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     """首页."""
-    # 直接返回简单 HTML，避免模板缓存问题
+    # 直接返回简单 HTML，包含导航栏
     return HTMLResponse(content="""
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -63,9 +63,10 @@ async def index(request: Request):
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ChaosDroid 控制台</title>
+    <link rel="stylesheet" href="/static/css/style.css">
     <style>
-        body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
-        .container { max-width: 1200px; margin: 0 auto; }
+        body { font-family: Arial, sans-serif; margin: 0; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
         h1 { color: #333; }
         .card { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; }
@@ -75,9 +76,28 @@ async def index(request: Request):
         a { color: #667eea; }
         .btn { display: inline-block; padding: 10px 20px; background: #667eea; color: white; text-decoration: none; border-radius: 4px; margin: 5px; }
         .btn:hover { background: #5a6fd6; }
+        /* 导航栏样式 */
+        .navbar { background: #1f2937; padding: 1rem; margin-bottom: 2rem; }
+        .navbar .container { display: flex; justify-content: space-between; align-items: center; padding: 0; margin: 0 auto; }
+        .navbar-brand { color: white; font-size: 1.5rem; font-weight: bold; text-decoration: none; }
+        .navbar-nav { display: flex; gap: 1rem; list-style: none; margin: 0; padding: 0; }
+        .navbar-nav a { color: #e5e7eb; text-decoration: none; padding: 0.5rem 1rem; border-radius: 4px; }
+        .navbar-nav a:hover { background: #374151; color: white; }
     </style>
 </head>
 <body>
+    <nav class="navbar" role="navigation" aria-label="主导航">
+        <div class="container">
+            <a href="/" class="navbar-brand">ChaosDroid</a>
+            <ul class="navbar-nav" role="menubar">
+                <li role="none"><a href="/" role="menuitem">仪表盘</a></li>
+                <li role="none"><a href="/devices" role="menuitem">设备管理</a></li>
+                <li role="none"><a href="/runs" role="menuitem">任务列表</a></li>
+                <li role="none"><a href="/diagnosis" role="menuitem">日志诊断</a></li>
+            </ul>
+        </div>
+    </nav>
+
     <div class="container">
         <h1>ChaosDroid 控制台</h1>
         <p>Android 故障注入测试与恢复验证平台</p>
@@ -107,6 +127,7 @@ async def index(request: Request):
             <a href="/api/runs" class="btn">执行 API</a>
             <a href="/api/reports" class="btn">报告 API</a>
             <a href="/docs" class="btn">Swagger 文档</a>
+            <a href="/diagnosis" class="btn">日志诊断</a>
         </div>
 
         <div class="card">
@@ -134,8 +155,9 @@ async def scenarios_list(
     scenarios = await list_scenarios(filters)
 
     return _get_templates().TemplateResponse(
-        "scenarios/list.html",
-        {
+        request=request,
+        name="scenarios/list.html",
+        context={
             "request": request,
             "scenarios": scenarios,
             "filters": filters,
@@ -151,8 +173,9 @@ async def scenario_detail(request: Request, scenario_id: int):
         raise HTTPException(status_code=404, detail="Scenario not found")
 
     return _get_templates().TemplateResponse(
-        "scenarios/detail.html",
-        {
+        request=request,
+        name="scenarios/detail.html",
+        context={
             "request": request,
             "scenario": scenario,
         }
@@ -174,9 +197,8 @@ async def runs_list(
 
     filters = RunFilters(
         status=status,
-        scenario_id=scenario_id,
+        scenario_template_id=scenario_id,
         device_serial=device_serial,
-        limit=limit
     )
     runs = await list_runs(filters)
 
@@ -184,8 +206,9 @@ async def runs_list(
     scenarios = await list_scenarios()
 
     return _get_templates().TemplateResponse(
-        "runs/list.html",
-        {
+        request=request,
+        name="runs/list.html",
+        context={
             "request": request,
             "runs": runs,
             "filters": filters,
@@ -205,8 +228,9 @@ async def run_detail(request: Request, run_id: int):
     steps = await get_run_steps(run_id)
 
     return _get_templates().TemplateResponse(
-        "runs/detail.html",
-        {
+        request=request,
+        name="runs/detail.html",
+        context={
             "request": request,
             "run": run,
             "steps": steps,
@@ -222,8 +246,9 @@ async def reports_list(request: Request, limit: int = 20):
     reports = await list_reports(limit=limit)
 
     return _get_templates().TemplateResponse(
-        "reports/list.html",
-        {
+        request=request,
+        name="reports/list.html",
+        context={
             "request": request,
             "reports": reports,
         }
@@ -241,8 +266,9 @@ async def report_view(request: Request, report_id: int):
     content = await get_report_content(report_id)
 
     return _get_templates().TemplateResponse(
-        "reports/view.html",
-        {
+        request=request,
+        name="reports/view.html",
+        context={
             "request": request,
             "report": report,
             "content": content,
@@ -255,14 +281,20 @@ async def report_view(request: Request, report_id: int):
 @router.get("/devices", response_class=HTMLResponse)
 async def devices_list(request: Request):
     """设备列表页面."""
-    from app.models import get_session_context, Device
+    from app.models.database import get_session_factory
+    from app.models.device import Device
+    from sqlalchemy import select
 
-    with get_session_context() as session:
-        devices = session.query(Device).all()
+    factory = get_session_factory()
+    async with factory() as session:
+        stmt = select(Device)
+        result = await session.execute(stmt)
+        devices = result.scalars().all()
 
     return _get_templates().TemplateResponse(
-        "devices/list.html",
-        {
+        request=request,
+        name="devices/list.html",
+        context={
             "request": request,
             "devices": devices,
         }
@@ -420,8 +452,9 @@ async def profiles_list(request: Request):
     recovery_profiles = await list_recovery_profiles()
 
     return _get_templates().TemplateResponse(
-        "profiles/list.html",
-        {
+        request=request,
+        name="profiles/list.html",
+        context={
             "request": request,
             "fault_profiles": fault_profiles,
             "validation_profiles": validation_profiles,
