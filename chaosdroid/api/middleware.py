@@ -4,15 +4,16 @@
 """
 
 import logging
-from typing import Callable, Set
+from typing import Any, Callable, Set
 
-from fastapi import FastAPI, Request, Response, status
-from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse, Response
 
 logger = logging.getLogger("chaosdroid")
 
 
-class APIKeyAuthenticationMiddleware:
+class APIKeyAuthenticationMiddleware(BaseHTTPMiddleware):
     """API Key 认证中间件.
 
     功能：
@@ -22,29 +23,28 @@ class APIKeyAuthenticationMiddleware:
     - 认证失败返回 401
 
     Attributes:
-        app: FastAPI 应用实例
         api_keys: 有效的 API Key 集合
         exclude_paths: 免认证的路径集合
     """
 
     def __init__(
         self,
-        app: FastAPI,
+        app: Any,
         api_keys: Set[str],
         exclude_paths: Set[str],
     ) -> None:
         """初始化中间件.
 
         Args:
-            app: FastAPI 应用实例
+            app: ASGI 应用实例
             api_keys: 有效的 API Key 集合
             exclude_paths: 免认证的路径集合（支持前缀匹配）
         """
-        self.app = app
+        super().__init__(app)
         self.api_keys = api_keys
         self.exclude_paths = exclude_paths
 
-    async def __call__(
+    async def dispatch(
         self,
         request: Request,
         call_next: Callable,
@@ -73,7 +73,7 @@ class APIKeyAuthenticationMiddleware:
                 f"API Key: {'missing' if not api_key else 'invalid'}"
             )
             return JSONResponse(
-                status_code=status.HTTP_401_UNAUTHORIZED,
+                status_code=401,
                 content={
                     "error": "unauthorized",
                     "message": "Invalid or missing API Key",

@@ -196,7 +196,6 @@ class ScenarioRun(Base, TimestampMixin):
         String(16),
         default="normal",
         nullable=False,
-        index=True,
         comment="执行优先级: normal/high/emergency"
     )
     device_pool_id: Mapped[int | None] = mapped_column(
