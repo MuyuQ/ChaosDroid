@@ -1,6 +1,6 @@
 """Web页面路由."""
 from fastapi import APIRouter, Request, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from typing import Optional
 
@@ -14,6 +14,23 @@ from chaosdroid.services import (
 
 router = APIRouter()
 templates = Jinja2Templates(directory="chaosdroid/api/templates")
+
+
+# ==================== 健康检查 ====================
+
+@router.get("/health")
+async def health_check():
+    """健康检查端点，用于负载均衡和监控。
+
+    此端点不需要认证。
+
+    Returns:
+        JSONResponse: 健康状态响应
+    """
+    return JSONResponse(
+        status_code=200,
+        content={"status": "healthy", "service": "ChaosDroid"}
+    )
 
 
 # ==================== 首页 ====================
@@ -160,8 +177,10 @@ async def report_view(request: Request, report_id: int):
 @router.get("/devices", response_class=HTMLResponse)
 async def devices_list(request: Request):
     """设备列表页面."""
-    # TODO: 实现设备列表获取
-    devices = []
+    from chaosdroid.models import get_session_context, Device
+
+    with get_session_context() as session:
+        devices = session.query(Device).all()
 
     return templates.TemplateResponse(
         "devices/list.html",

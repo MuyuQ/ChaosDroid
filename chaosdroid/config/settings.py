@@ -115,6 +115,16 @@ class Settings(BaseSettings):
         description="危险操作（重启设备、清理存储等）是否需要用户确认",
     )
 
+    # API 认证配置
+    api_keys: list[str] = Field(
+        default_factory=list,
+        description="有效的 API Key 列表，支持多个 Key，通过逗号分隔",
+    )
+    auth_exclude_paths: list[str] = Field(
+        default_factory=lambda: ["/health", "/docs", "/openapi.json", "/redoc"],
+        description="免认证的路径列表，支持前缀匹配",
+    )
+
     model_config = SettingsConfigDict(
         env_prefix="CHAOSDROID_",
         env_file=".env",

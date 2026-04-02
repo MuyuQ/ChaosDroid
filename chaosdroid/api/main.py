@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from chaosdroid.api.routes import scenarios, runs, reports, devices, profiles, web, pools
+from chaosdroid.api.middleware import setup_authentication
 from chaosdroid.config.settings import get_settings
 from chaosdroid.models.database import init_engine, create_tables
 
@@ -23,7 +24,9 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    """创建FastAPI应用"""
+    """创建 FastAPI 应用"""
+    settings = get_settings()
+
     app = FastAPI(
         title="ChaosDroid",
         description="Android fault injection testing and recovery verification platform",
@@ -31,7 +34,14 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # 注册API路由
+    # 设置认证中间件
+    setup_authentication(
+        app=app,
+        api_keys=set(settings.api_keys),
+        exclude_paths=set(settings.auth_exclude_paths),
+    )
+
+    # 注册 API 路由
     app.include_router(scenarios.router, prefix="/api/scenarios", tags=["scenarios"])
     app.include_router(runs.router, prefix="/api/runs", tags=["runs"])
     app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
@@ -39,7 +49,7 @@ def create_app() -> FastAPI:
     app.include_router(profiles.router, prefix="/api/profiles", tags=["profiles"])
     app.include_router(pools.router, prefix="/api/pools", tags=["pools"])
 
-    # 注册Web页面路由
+    # 注册 Web 页面路由
     app.include_router(web.router, tags=["web"])
 
     # 静态文件
