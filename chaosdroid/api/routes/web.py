@@ -1,7 +1,6 @@
-"""Web页面路由."""
+"""Web 页面路由."""
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.templating import Jinja2Templates
 from typing import Optional
 
 from chaosdroid.models import RunStatus
@@ -13,7 +12,16 @@ from chaosdroid.services import (
 )
 
 router = APIRouter()
-templates = Jinja2Templates(directory="chaosdroid/api/templates")
+
+# 延迟导入 templates，避免循环导入
+_templates = None
+
+def _get_templates():
+    global _templates
+    if _templates is None:
+        from starlette.templating import Jinja2Templates
+        _templates = Jinja2Templates(directory="chaosdroid/api/templates")
+    return _templates
 
 
 # ==================== 健康检查 ====================
@@ -38,7 +46,68 @@ async def health_check():
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     """首页."""
-    return templates.TemplateResponse("index.html", {"request": request})
+    # 直接返回简单 HTML，避免模板缓存问题
+    return HTMLResponse(content="""
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChaosDroid 控制台</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 { color: #333; }
+        .card { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; }
+        .stat-card { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px; text-align: center; }
+        .stat-card h3 { margin: 0; font-size: 2em; }
+        .stat-card p { margin: 10px 0 0; opacity: 0.9; }
+        a { color: #667eea; }
+        .btn { display: inline-block; padding: 10px 20px; background: #667eea; color: white; text-decoration: none; border-radius: 4px; margin: 5px; }
+        .btn:hover { background: #5a6fd6; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ChaosDroid 控制台</h1>
+        <p>Android 故障注入测试与恢复验证平台</p>
+
+        <div class="stats">
+            <div class="stat-card">
+                <h3>0</h3>
+                <p>场景模板</p>
+            </div>
+            <div class="stat-card">
+                <h3>0</h3>
+                <p>执行记录</p>
+            </div>
+            <div class="stat-card">
+                <h3>0</h3>
+                <p>测试通过</p>
+            </div>
+            <div class="stat-card">
+                <h3>0</h3>
+                <p>测试失败</p>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>快速操作</h2>
+            <a href="/api/scenarios" class="btn">场景 API</a>
+            <a href="/api/runs" class="btn">执行 API</a>
+            <a href="/api/reports" class="btn">报告 API</a>
+            <a href="/docs" class="btn">Swagger 文档</a>
+        </div>
+
+        <div class="card">
+            <h2>系统状态</h2>
+            <p>服务运行正常，API 已启用。</p>
+        </div>
+    </div>
+</body>
+</html>
+""")
 
 
 # ==================== 场景管理 ====================
@@ -55,7 +124,7 @@ async def scenarios_list(
     filters = ScenarioFilters(target_type=target_type, enabled=enabled)
     scenarios = await list_scenarios(filters)
 
-    return templates.TemplateResponse(
+    return _get_templates().TemplateResponse(
         "scenarios/list.html",
         {
             "request": request,
@@ -72,7 +141,7 @@ async def scenario_detail(request: Request, scenario_id: int):
     if not scenario:
         raise HTTPException(status_code=404, detail="Scenario not found")
 
-    return templates.TemplateResponse(
+    return _get_templates().TemplateResponse(
         "scenarios/detail.html",
         {
             "request": request,
@@ -105,7 +174,7 @@ async def runs_list(
     # 获取场景列表用于筛选
     scenarios = await list_scenarios()
 
-    return templates.TemplateResponse(
+    return _get_templates().TemplateResponse(
         "runs/list.html",
         {
             "request": request,
@@ -126,7 +195,7 @@ async def run_detail(request: Request, run_id: int):
 
     steps = await get_run_steps(run_id)
 
-    return templates.TemplateResponse(
+    return _get_templates().TemplateResponse(
         "runs/detail.html",
         {
             "request": request,
@@ -143,7 +212,7 @@ async def reports_list(request: Request, limit: int = 20):
     """报告列表页面."""
     reports = await list_reports(limit=limit)
 
-    return templates.TemplateResponse(
+    return _get_templates().TemplateResponse(
         "reports/list.html",
         {
             "request": request,
@@ -162,7 +231,7 @@ async def report_view(request: Request, report_id: int):
     # 获取报告内容
     content = await get_report_content(report_id)
 
-    return templates.TemplateResponse(
+    return _get_templates().TemplateResponse(
         "reports/view.html",
         {
             "request": request,
@@ -182,7 +251,7 @@ async def devices_list(request: Request):
     with get_session_context() as session:
         devices = session.query(Device).all()
 
-    return templates.TemplateResponse(
+    return _get_templates().TemplateResponse(
         "devices/list.html",
         {
             "request": request,
@@ -200,7 +269,7 @@ async def profiles_list(request: Request):
     validation_profiles = await list_validation_profiles()
     recovery_profiles = await list_recovery_profiles()
 
-    return templates.TemplateResponse(
+    return _get_templates().TemplateResponse(
         "profiles/list.html",
         {
             "request": request,

@@ -4,7 +4,6 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
 from chaosdroid.api.routes import scenarios, runs, reports, devices, profiles, web, pools
 from chaosdroid.api.middleware import setup_authentication
