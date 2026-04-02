@@ -6,6 +6,7 @@
 import logging
 from typing import Any, Callable, Set
 
+from fastapi import FastAPI
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -58,6 +59,11 @@ class APIKeyAuthenticationMiddleware(BaseHTTPMiddleware):
         Returns:
             Response: 响应对象，认证失败时返回 401
         """
+        # 未配置 API Key 时跳过认证（开发模式）
+        if not self.api_keys:
+            logger.debug(f"未配置 API Key，跳过认证：{request.url.path}")
+            return await call_next(request)
+
         # 检查是否需要认证
         if self._is_excluded(request.url.path):
             logger.debug(f"跳过认证：{request.url.path}")
