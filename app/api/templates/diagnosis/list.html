@@ -25,17 +25,17 @@
             {% for run in runs %}
             <tr>
                 <td><a href="/diagnosis/{{ run.run_id }}"><strong>#{{ run.run_id }}</strong></a></td>
-                <td>{{ run.device_serial or '-' }}</td>
-                <td>{{ run.test_type or '-' }}</td>
+                <td>{{ run.device_serial }}</td>
+                <td>{{ run.test_type }}</td>
                 <td>
-                    <span class="status-badge status-{{ run.status.value if hasattr(run.status, 'value') else run.status }}">
-                        {{ run.status.value if hasattr(run.status, 'value') else run.status }}
+                    <span class="status-badge status-{{ run.status }}">
+                        {{ run.status }}
                     </span>
                 </td>
                 <td>
-                    {% if run.run_id in results %}
-                        {% set result = results[run.run_id] %}
-                        <span style="color: {% if result.result_status.value == 'passed' %}green{% elif result.result_status.value == 'failed' %}red{% else %}orange{% endif %};">
+                    {% if run.run_id in results_map %}
+                        {% set result = results_map[run.run_id] %}
+                        <span style="color: {% if result.result_status == 'passed' %}green{% elif result.result_status == 'failed' %}red{% else %}orange{% endif %};">
                             {{ result.category }}
                         </span>
                     {% else %}
@@ -43,8 +43,8 @@
                     {% endif %}
                 </td>
                 <td>
-                    {% if run.run_id in results %}
-                        {% set result = results[run.run_id] %}
+                    {% if run.run_id in results_map %}
+                        {% set result = results_map[run.run_id] %}
                         {{ (result.confidence * 100)|int }}%
                     {% else %}
                         -
@@ -52,7 +52,7 @@
                 </td>
                 <td>
                     <a href="/diagnosis/{{ run.run_id }}" class="btn btn-sm btn-secondary">详情</a>
-                    {% if run.run_id not in results %}
+                    {% if run.run_id not in results_map %}
                     <button class="btn btn-sm btn-primary"
                             hx-post="/diagnosis/{{ run.run_id }}/execute"
                             hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'

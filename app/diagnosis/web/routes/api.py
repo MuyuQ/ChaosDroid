@@ -4,8 +4,10 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends
 from fastapi.responses import FileResponse
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.diagnosis.models import get_session, SimilarCaseIndex
 from app.diagnosis.services import IngestService, DiagnoseService, ReportService, RuleService, SimilarCaseService
@@ -18,51 +20,56 @@ router = APIRouter(prefix="/api")
 def register_api_routes(router: APIRouter):
     """注册API路由。"""
 
+    def get_db() -> AsyncSession:
+        """获取数据库 Session。"""
+        return get_session()
+
     @router.post("/runs/import")
-    async def api_import(request: Request):
+    async def api_import(request: Request, session: AsyncSession = Depends(get_db)):
         """API: 导入日志。"""
         data = await request.json()
-        service = IngestService()
-        run_id = service.ingest_path(data.get("path"), data.get("metadata"))
+        service = IngestService(session=session)
+        run_id = await service.ingest_path(data.get("path"), data.get("metadata"))
         return {"run_id": run_id}
 
     @router.get("/runs")
-    async def api_runs():
+    async def api_runs(session: AsyncSession = Depends(get_db)):
         """API: 任务列表。"""
-        service = IngestService()
-        runs = service.list_runs()
+        service = IngestService(session=session)
+        runs = await service.list_runs()
         return [{"run_id": r.run_id, "status": r.status.value} for r in runs]
 
     @router.get("/runs/{run_id}")
-    async def api_run(run_id: str):
+    async def api_run(run_id: str, session: AsyncSession = Depends(get_db)):
         """API: 任务详情。"""
-        service = ReportService()
-        payload = service.build_payload(run_id)
+        service = ReportService(session=session)
+        payload = await service.build_payload(run_id)
         if not payload:
             raise NotFoundError(f"任务不存在: {run_id}", {"run_id": run_id})
         return payload.model_dump()
 
     @router.post("/runs/{run_id}/diagnose")
-    async def api_diagnose(run_id: str):
+    async def api_diagnose(run_id: str, session: AsyncSession = Depends(get_db)):
         """API: 执行诊断。"""
-        service = DiagnoseService()
-        result = service.diagnose(run_id)  # NotFoundError/DiagnosisError 由服务层抛出
+        service = DiagnoseService(session=session)
+        result = await service.diagnose(run_id)  # NotFoundError/DiagnosisError 由服务层抛出
         return result.model_dump()
 
     @router.get("/runs/{run_id}/report")
-    async def api_report(run_id: str):
+    async def api_report(run_id: str, session: AsyncSession = Depends(get_db)):
         """API: 获取报告。"""
-        service = ReportService()
-        payload = service.build_payload(run_id)
+        service = ReportService(session=session)
+        payload = await service.build_payload(run_id)
         if not payload:
             raise NotFoundError(f"报告不存在: {run_id}", {"run_id": run_id})
         return payload.model_dump()
 
     @router.get("/cases")
-    async def api_cases():
+    async def api_cases(session: AsyncSession = Depends(get_db)):
         """API: 案例列表。"""
-        session = get_session()
-        cases = session.query(SimilarCaseIndex).all()
+        stmt = select(SimilarCaseIndex)
+        cases = await session.execute(stmt)
+        cases = cases.scalars().all()
         return [{
             "run_id": c.run_id,
             "category": c.category,
@@ -72,10 +79,10 @@ def register_api_routes(router: APIRouter):
         } for c in cases]
 
     @router.post("/cases/rebuild")
-    async def api_cases_rebuild():
+    async def api_cases_rebuild(session: AsyncSession = Depends(get_db)):
         """API: 重建案例索引。"""
-        service = SimilarCaseService()
-        count = service.rebuild_index()
+        service = SimilarCaseService(session=session)
+        count = await service.rebuild_index()
         return {"indexed_count": count, "message": "索引重建完成"}
 
     @router.get("/cases/search")

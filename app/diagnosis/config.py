@@ -12,7 +12,7 @@ class Settings(BaseSettings):
 
     # 数据库配置
     database_url: str = Field(
-        default="sqlite:///data/tracelens.db",
+        default="sqlite+aiosqlite:///data/tracelens.db",
         description="数据库连接URL"
     )
 

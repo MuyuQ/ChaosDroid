@@ -1,4 +1,4 @@
-"""证据导入服务。"""
+"""证据导入服务 - 异步版本。"""
 
 import hashlib
 import json
@@ -8,23 +8,24 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, desc
 
 from app.diagnosis.config import settings, config
 from app.diagnosis.enums import SourceType, RunStatus
 from app.diagnosis.exceptions import ValidationError, NotFoundError
-from app.diagnosis.models import DiagnosticRun, RawArtifact, get_session
+from app.diagnosis.models import DiagnosticRun, RawArtifact
 
 
 class IngestService:
     """证据导入服务。"""
 
-    def __init__(self, session: Optional[Session] = None):
+    def __init__(self, session: AsyncSession):
         """初始化服务。"""
-        self.session = session or get_session()
+        self.session = session
         self.artifacts_base = Path(settings.artifacts_base_path)
 
-    def ingest_path(
+    async def ingest_path(
         self,
         path: str,
         metadata: Optional[dict] = None,
@@ -34,16 +35,16 @@ class IngestService:
 
         Args:
             path: 日志路径（目录或单文件）
-            metadata: 额外元数据（device_serial, test_type等）
+            metadata: 额外元数据（device_serial, test_type 等）
 
         Returns:
-            run_id: 任务ID
+            run_id: 任务 ID
         """
         source_path = Path(path)
 
         # 检查路径是否存在
         if not source_path.exists():
-            raise ValidationError(f"路径不存在: {path}", {"path": path})
+            raise ValidationError(f"路径不存在：{path}", {"path": path})
 
         # 如果是目录，尝试读取 metadata.json
         auto_metadata = {}
@@ -53,7 +54,7 @@ class IngestService:
         # 合并元数据（传入的 metadata 优先）
         final_metadata = {**auto_metadata, **(metadata or {})}
 
-        # 生成run_id
+        # 生成 run_id
         run_id = self._generate_run_id()
 
         # 创建任务记录
@@ -74,15 +75,15 @@ class IngestService:
 
         # 导入文件
         if source_path.is_file():
-            self._import_file(source_path, target_dir, run_id)
+            await self._import_file(source_path, target_dir, run_id)
         elif source_path.is_dir():
-            self._import_directory(source_path, target_dir, run_id)
+            await self._import_directory(source_path, target_dir, run_id)
 
-        self.session.commit()
+        await self.session.commit()
         return run_id
 
     def _generate_run_id(self) -> str:
-        """生成唯一任务ID。"""
+        """生成唯一任务 ID。"""
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         unique_id = uuid.uuid4().hex[:8]
         return f"run_{timestamp}_{unique_id}"
@@ -98,7 +99,7 @@ class IngestService:
                 pass
         return {}
 
-    def _import_file(self, source_file: Path, target_dir: Path, run_id: str) -> None:
+    async def _import_file(self, source_file: Path, target_dir: Path, run_id: str) -> None:
         """导入单个文件。"""
         source_type = self._identify_source_type(source_file.name)
 
@@ -106,7 +107,7 @@ class IngestService:
         target_file = target_dir / source_file.name
         shutil.copy2(source_file, target_file)
 
-        # 计算SHA256
+        # 计算 SHA256
         sha256 = self._compute_sha256(target_file)
 
         # 创建记录
@@ -120,11 +121,11 @@ class IngestService:
         )
         self.session.add(artifact)
 
-    def _import_directory(self, source_dir: Path, target_dir: Path, run_id: str) -> None:
+    async def _import_directory(self, source_dir: Path, target_dir: Path, run_id: str) -> None:
         """导入目录。"""
         for file_path in source_dir.iterdir():
             if file_path.is_file():
-                self._import_file(file_path, target_dir, run_id)
+                await self._import_file(file_path, target_dir, run_id)
 
     def _identify_source_type(self, file_name: str) -> SourceType:
         """根据文件名识别来源类型。"""
@@ -139,18 +140,18 @@ class IngestService:
         return SourceType.DEVICE_RUNTIME_LOG
 
     def _compute_sha256(self, file_path: Path) -> str:
-        """计算文件SHA256。"""
+        """计算文件 SHA256。"""
         sha256_hash = hashlib.sha256()
         with open(file_path, "rb") as f:
             for chunk in iter(lambda: f.read(4096), b""):
                 sha256_hash.update(chunk)
         return sha256_hash.hexdigest()
 
-    def get_run(self, run_id: str) -> DiagnosticRun:
+    async def get_run(self, run_id: str) -> DiagnosticRun:
         """获取任务信息。
 
         Args:
-            run_id: 任务ID
+            run_id: 任务 ID
 
         Returns:
             任务记录
@@ -158,21 +159,22 @@ class IngestService:
         Raises:
             NotFoundError: 任务不存在
         """
-        run = self.session.query(DiagnosticRun).filter(DiagnosticRun.run_id == run_id).first()
+        stmt = select(DiagnosticRun).where(DiagnosticRun.run_id == run_id)
+        result = await self.session.execute(stmt)
+        run = result.scalar_one_or_none()
+
         if not run:
-            raise NotFoundError(f"任务不存在: {run_id}", {"run_id": run_id})
+            raise NotFoundError(f"任务不存在：{run_id}", {"run_id": run_id})
         return run
 
-    def get_artifacts(self, run_id: str) -> list[RawArtifact]:
+    async def get_artifacts(self, run_id: str) -> list[RawArtifact]:
         """获取任务的证据文件列表。"""
-        return self.session.query(RawArtifact).filter(RawArtifact.run_id == run_id).all()
+        stmt = select(RawArtifact).where(RawArtifact.run_id == run_id)
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
 
-    def list_runs(self, limit: int = 100, offset: int = 0) -> list[DiagnosticRun]:
+    async def list_runs(self, limit: int = 100, offset: int = 0) -> list[DiagnosticRun]:
         """获取任务列表。"""
-        return (
-            self.session.query(DiagnosticRun)
-            .order_by(DiagnosticRun.started_at.desc())
-            .limit(limit)
-            .offset(offset)
-            .all()
-        )
+        stmt = select(DiagnosticRun).order_by(desc(DiagnosticRun.started_at)).limit(limit).offset(offset)
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())

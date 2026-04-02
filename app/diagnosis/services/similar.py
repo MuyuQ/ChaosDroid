@@ -1,23 +1,24 @@
-"""相似案例召回服务。"""
+"""相似案例召回服务 - 异步版本。"""
 
 from typing import Optional
 
 from rapidfuzz import fuzz
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.diagnosis.config import settings
-from app.diagnosis.models import SimilarCaseIndex, CaseLink, DiagnosticResultDB, get_session
+from app.diagnosis.models import SimilarCaseIndex, CaseLink, DiagnosticResultDB
 from app.diagnosis.schemas import DiagnosticResult, SimilarCase
 
 
 class SimilarCaseService:
     """相似案例召回服务。"""
 
-    def __init__(self, session: Optional[Session] = None):
+    def __init__(self, session: AsyncSession):
         """初始化服务。"""
-        self.session = session or get_session()
+        self.session = session
 
-    def search(self, result: DiagnosticResult, limit: int = 3) -> list[SimilarCase]:
+    async def search(self, result: DiagnosticResult, limit: int = 3) -> list[SimilarCase]:
         """
         从历史案例中召回相似案例。
 
@@ -32,9 +33,9 @@ class SimilarCaseService:
         feature_text = self._build_feature_text(result)
 
         # 查询历史案例索引
-        candidates = self.session.query(SimilarCaseIndex).filter(
-            SimilarCaseIndex.run_id != result.run_id
-        ).all()
+        stmt = select(SimilarCaseIndex).where(SimilarCaseIndex.run_id != result.run_id)
+        result_set = await self.session.execute(stmt)
+        candidates = list(result_set.scalars().all())
 
         # 计算相似度
         scored_cases = []
@@ -47,11 +48,11 @@ class SimilarCaseService:
             if score > settings.similarity_threshold:
                 scored_cases.append((candidate, score))
 
-        # 排序并取top N
+        # 排序并取 top N
         scored_cases.sort(key=lambda x: x[1], reverse=True)
         top_cases = scored_cases[:limit]
 
-        # 转换为SimilarCase对象
+        # 转换为 SimilarCase 对象
         similar_cases = []
         for candidate, score in top_cases:
             similar_case = SimilarCase(
@@ -59,14 +60,13 @@ class SimilarCaseService:
                 category=candidate.category,
                 root_cause=candidate.root_cause,
                 similarity_score=score,
-                reason=f"相似特征: {candidate.category}/{candidate.root_cause}",
+                reason=f"相似特征：{candidate.category}/{candidate.root_cause}",
             )
             similar_cases.append(similar_case)
 
             # 保存关联记录（不立即提交，让调用者控制事务边界）
-            self._save_case_link(result.run_id, candidate.run_id, score)
+            await self._save_case_link(result.run_id, candidate.run_id, score)
 
-        # 不在此处提交，让调用者控制事务边界
         return similar_cases
 
     def _build_feature_text(self, result: DiagnosticResult) -> str:
@@ -74,7 +74,7 @@ class SimilarCaseService:
         parts = [
             result.category,
             result.root_cause or "",
-            result.stage.value,
+            result.stage.value if hasattr(result.stage, 'value') else result.stage,
         ]
         return " ".join(parts)
 
@@ -108,7 +108,7 @@ class SimilarCaseService:
 
         return min(1.0, score)
 
-    def _save_case_link(self, run_id: str, similar_run_id: str, score: float) -> None:
+    async def _save_case_link(self, run_id: str, similar_run_id: str, score: float) -> None:
         """保存案例关联记录。"""
         link = CaseLink(
             run_id=run_id,
@@ -118,7 +118,7 @@ class SimilarCaseService:
         )
         self.session.add(link)
 
-    def index_run(self, result: DiagnosticResult) -> None:
+    async def index_run(self, result: DiagnosticResult) -> None:
         """
         将诊断结果索引到相似案例库。
 
@@ -128,9 +128,9 @@ class SimilarCaseService:
         feature_text = self._build_feature_text(result)
 
         # 检查是否已存在
-        existing = self.session.query(SimilarCaseIndex).filter(
-            SimilarCaseIndex.run_id == result.run_id
-        ).first()
+        stmt = select(SimilarCaseIndex).where(SimilarCaseIndex.run_id == result.run_id)
+        result = await self.session.execute(stmt)
+        existing = result.scalar_one_or_none()
 
         if existing:
             existing.category = result.category
@@ -147,9 +147,7 @@ class SimilarCaseService:
             )
             self.session.add(index)
 
-        # 不在此处提交，让调用者控制事务边界
-
-    def rebuild_index(self) -> int:
+    async def rebuild_index(self) -> int:
         """
         重建相似案例索引。
 
@@ -157,10 +155,16 @@ class SimilarCaseService:
             索引数量
         """
         # 清空现有索引
-        self.session.query(SimilarCaseIndex).delete()
+        stmt = select(SimilarCaseIndex)
+        result = await self.session.execute(stmt)
+        existing = result.scalars().all()
+        for item in existing:
+            await self.session.delete(item)
 
         # 获取所有诊断结果
-        results = self.session.query(DiagnosticResultDB).all()
+        stmt = select(DiagnosticResultDB)
+        result = await self.session.execute(stmt)
+        results = list(result.scalars().all())
 
         count = 0
         for db_result in results:
@@ -173,9 +177,9 @@ class SimilarCaseService:
                 result_status=db_result.result_status,
                 key_evidence=db_result.key_evidence,
             )
-            self.index_run(result)
+            await self.index_run(result)
             count += 1
 
         # 提交所有索引变更
-        self.session.commit()
+        await self.session.commit()
         return count

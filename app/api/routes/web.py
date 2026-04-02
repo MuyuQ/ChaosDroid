@@ -20,7 +20,16 @@ def _get_templates():
     global _templates
     if _templates is None:
         from starlette.templating import Jinja2Templates
-        _templates = Jinja2Templates(directory="chaosdroid/api/templates")
+        from pathlib import Path
+        import jinja2
+        template_dir = Path(__file__).parent.parent / "templates"
+        # 创建不带缓存的 Jinja2 环境
+        env = jinja2.Environment(
+            loader=jinja2.FileSystemLoader(str(template_dir)),
+            autoescape=True,
+            cache_size=0,  # 禁用缓存
+        )
+        _templates = Jinja2Templates(env=env)
     return _templates
 
 
@@ -258,6 +267,147 @@ async def devices_list(request: Request):
             "devices": devices,
         }
     )
+
+
+# ==================== 诊断管理 ====================
+
+@router.get("/diagnosis", response_class=HTMLResponse)
+async def diagnosis_list(request: Request):
+    """诊断列表页面."""
+    from app.diagnosis.services.ingest import IngestService
+    from app.diagnosis.services.diagnose import DiagnoseService
+    from app.diagnosis.models.db import get_async_session_factory
+
+    # 创建会话
+    factory = get_async_session_factory()
+    async with factory() as session:
+        try:
+            ingest_service = IngestService(session=session)
+            runs = await ingest_service.list_runs(limit=50)
+
+            # 获取每个任务的诊断结果
+            diagnose_service = DiagnoseService(session=session)
+            results_map = {}  # run_id -> diagnosis result
+            for run in runs:
+                try:
+                    result = await diagnose_service.get_result(run.run_id)
+                    if result:
+                        # 转换为简单的字典，避免 Jinja2 缓存问题
+                        # 确保所有键和值都是简单类型
+                        key = str(run.run_id)
+                        results_map[key] = {
+                            "category": str(result.category),
+                            "root_cause": result.root_cause or "",
+                            "confidence": float(result.confidence),
+                            "result_status": str(result.result_status.value if hasattr(result.result_status, 'value') else result.result_status),
+                        }
+                except Exception:
+                    pass
+
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+
+    # 获取 CSRF token
+    import secrets
+    csrf_token = request.cookies.get("csrf_token")
+    if not csrf_token:
+        csrf_token = secrets.token_hex(32)
+
+    # 构建简单类型的 runs 列表
+    runs_data = []
+    for run in runs:
+        runs_data.append({
+            "run_id": str(run.run_id),
+            "device_serial": run.device_serial or "-",
+            "test_type": run.test_type or "-",
+            "status": str(run.status.value if hasattr(run.status, 'value') else run.status),
+        })
+
+    return _get_templates().TemplateResponse(
+        request=request,
+        name="diagnosis/list.html",
+        context={
+            "runs": runs_data,
+            "results_map": results_map,
+            "csrf_token": csrf_token,
+        },
+    )
+
+
+@router.get("/diagnosis/{run_id}", response_class=HTMLResponse)
+async def diagnosis_detail(request: Request, run_id: str):
+    """诊断详情页面."""
+    from app.diagnosis.services.ingest import IngestService
+    from app.diagnosis.services.diagnose import DiagnoseService
+    from app.diagnosis.models.db import get_async_session_factory
+
+    # 创建会话
+    factory = get_async_session_factory()
+    async with factory() as session:
+        try:
+            ingest_service = IngestService(session=session)
+
+            try:
+                run = await ingest_service.get_run(run_id)
+            except Exception:
+                raise HTTPException(status_code=404, detail="任务不存在")
+
+            diagnose_service = DiagnoseService(session=session)
+            result = await diagnose_service.get_result(run_id)
+
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+
+    # 获取 CSRF token
+    import secrets
+    csrf_token = request.cookies.get("csrf_token")
+    if not csrf_token:
+        csrf_token = secrets.token_hex(32)
+
+    return _get_templates().TemplateResponse(
+        request=request,
+        name="diagnosis/detail.html",
+        context={
+            "run": run,
+            "result": result,
+            "csrf_token": csrf_token,
+        },
+    )
+
+
+@router.post("/diagnosis/{run_id}/execute", response_class=HTMLResponse)
+async def diagnosis_execute(request: Request, run_id: str, csrf_token: str = None):
+    """执行诊断."""
+    from app.diagnosis.services.diagnose import DiagnoseService
+    from app.diagnosis.models.db import get_async_session_factory
+    from fastapi.responses import RedirectResponse
+
+    # CSRF 验证
+    csrf_cookie = request.cookies.get("csrf_token")
+    if csrf_cookie != csrf_token:
+        return HTMLResponse(content="CSRF 验证失败", status_code=403)
+
+    # 创建会话
+    factory = get_async_session_factory()
+    async with factory() as session:
+        try:
+            service = DiagnoseService(session=session)
+
+            try:
+                await service.diagnose(run_id)
+                await session.commit()
+            except Exception as e:
+                await session.rollback()
+                return HTMLResponse(content=f"诊断失败：{str(e)}", status_code=500)
+        except Exception:
+            await session.rollback()
+            raise
+
+    return RedirectResponse(url=f"/diagnosis/{run_id}", status_code=303)
 
 
 # ==================== 配置管理 ====================

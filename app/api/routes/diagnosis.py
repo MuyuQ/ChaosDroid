@@ -1,8 +1,10 @@
-"""诊断 API 路由 - 简化版集成 ChaosDroid 数据模型。"""
+"""诊断 API 路由 - 异步版本。"""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.diagnosis.services.ingest import IngestService
 from app.diagnosis.services.diagnose import DiagnoseService
@@ -52,13 +54,12 @@ async def ingest_logs(request: IngestRequest):
 
 
 @router.post("/run", response_model=DiagnoseResponse)
-async def run_diagnose(request: DiagnoseRequest):
+async def run_diagnose(request: DiagnoseRequest, session: AsyncSession = Depends(get_session)):
     """执行诊断。"""
-    session = get_session()
     service = DiagnoseService(session=session)
 
     try:
-        result = service.diagnose(request.run_id)
+        result = await service.diagnose(request.run_id)
         if not result:
             raise HTTPException(status_code=404, detail="诊断失败")
 
@@ -79,11 +80,10 @@ async def run_diagnose(request: DiagnoseRequest):
 
 
 @router.get("/result/{run_id}")
-async def get_diagnosis_result(run_id: str):
+async def get_diagnosis_result(run_id: str, session: AsyncSession = Depends(get_session)):
     """获取诊断结果。"""
-    session = get_session()
     service = DiagnoseService(session=session)
-    result = service.get_result(run_id)
+    result = await service.get_result(run_id)
 
     if not result:
         raise HTTPException(status_code=404, detail="诊断结果不存在")

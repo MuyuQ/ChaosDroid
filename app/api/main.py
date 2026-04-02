@@ -10,13 +10,14 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.api.routes import scenarios, runs, reports, devices, profiles, web, pools, diagnosis, diagnosis_web
+from app.api.routes import scenarios, runs, reports, devices, profiles, web, pools, diagnosis
 from app.config.settings import get_settings
 from app.models.database import init_engine, create_tables
 
 
 CSRF_TOKEN_COOKIE = "csrf_token"
 CSRF_TOKEN_LENGTH = 32
+CSRF_HEADER_NAME = "X-CSRF-Token"
 
 # 不需要 API Key 认证的路径
 PUBLIC_PATHS = [
@@ -40,6 +41,10 @@ API_PATH_PREFIX = "/api"
 class CSRFMiddleware(BaseHTTPMiddleware):
     """CSRF 保护中间件。"""
 
+    def __init__(self, app, csrf_secret: str):
+        super().__init__(app)
+        self.csrf_secret = csrf_secret.encode()
+
     async def dispatch(self, request: Request, call_next):
         csrf_token = request.cookies.get(CSRF_TOKEN_COOKIE)
 
@@ -47,7 +52,7 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             csrf_token = secrets.token_urlsafe(CSRF_TOKEN_LENGTH)
 
         if request.method in ("POST", "PUT", "DELETE"):
-            header_token = request.headers.get("X-CSRF-Token")
+            header_token = request.headers.get(CSRF_HEADER_NAME)
 
             if header_token is not None:
                 cookie_token = request.cookies.get(CSRF_TOKEN_COOKIE)
@@ -128,10 +133,10 @@ app = FastAPI(
 )
 
 # 添加 CSRF 中间件
-app.add_middleware(CSRFMiddleware)
+settings = get_settings()
+app.add_middleware(CSRFMiddleware, csrf_secret=settings.csrf_secret)
 
 # 添加 API Key 中间件
-settings = get_settings()
 if settings.api_keys:
     app.add_middleware(
         APIKeyMiddleware,
@@ -149,14 +154,14 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 # 注册路由
 app.include_router(web.router, tags=["web"])
-app.include_router(devices.router)
-app.include_router(runs.router)
-app.include_router(reports.router)
-app.include_router(scenarios.router)
-app.include_router(profiles.router)
-app.include_router(pools.router)
-app.include_router(diagnosis.router)
-app.include_router(diagnosis_web.router)
+app.include_router(devices.router, prefix="/api/devices", tags=["devices"])
+app.include_router(runs.router, prefix="/api/runs", tags=["runs"])
+app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
+app.include_router(scenarios.router, prefix="/api/scenarios", tags=["scenarios"])
+app.include_router(profiles.router, prefix="/api/profiles", tags=["profiles"])
+app.include_router(pools.router, prefix="/api/pools", tags=["pools"])
+app.include_router(diagnosis.router)  # diagnosis 已经有 /api/diagnosis 前缀
+# diagnosis_web.router 已整合到 web.py 中，不再需要
 
 
 @app.get("/health")

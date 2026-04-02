@@ -1,14 +1,15 @@
-"""诊断服务。"""
+"""诊断服务 - 异步版本。"""
 
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.diagnosis.engine import RuleEngine
 from app.diagnosis.enums import RunStatus, Category
 from app.diagnosis.exceptions import NotFoundError, DiagnosisError
-from app.diagnosis.models import DiagnosticRun, DiagnosticResultDB, RuleHit, get_session
+from app.diagnosis.models import DiagnosticRun, DiagnosticResultDB, RuleHit
 from app.diagnosis.schemas import DiagnosticResult
 from app.diagnosis.services.parse import ParseService
 from app.diagnosis.services.rule import RuleService
@@ -18,23 +19,32 @@ from app.diagnosis.services.similar import SimilarCaseService
 class DiagnoseService:
     """诊断服务。"""
 
-    def __init__(self, session: Optional[Session] = None):
-        """初始化服务。"""
-        self.session = session or get_session()
+    def __init__(self, session: AsyncSession, rules=None):
+        """
+        初始化服务。
+
+        Args:
+            session: 数据库会话
+            rules: 预加载的规则列表，如果为 None 则在 diagnose 时加载
+        """
+        self.session = session
         self.parse_service = ParseService(session)
-        # 从数据库加载规则，而非仅从YAML文件
-        rule_service = RuleService(session)
-        rules = rule_service.load_rules_for_engine()
-        self.rule_engine = RuleEngine(rules=rules)
-        self.rule_service = rule_service
+        self.rule_engine = RuleEngine(rules=rules) if rules else None
+        self.rule_service = RuleService(session)
         self.similar_service = SimilarCaseService(session)
 
-    def diagnose(self, run_id: str) -> Optional[DiagnosticResult]:
+    async def _ensure_rules_loaded(self):
+        """确保规则已加载。"""
+        if self.rule_engine is None:
+            rules = await self.rule_service.load_rules_for_engine()
+            self.rule_engine = RuleEngine(rules=rules)
+
+    async def diagnose(self, run_id: str) -> DiagnosticResult:
         """
         对指定任务执行诊断。
 
         Args:
-            run_id: 任务ID
+            run_id: 任务 ID
 
         Returns:
             诊断结果
@@ -44,49 +54,58 @@ class DiagnoseService:
             DiagnosisError: 诊断执行失败
         """
         # 获取任务
-        run = self.session.query(DiagnosticRun).filter(DiagnosticRun.run_id == run_id).first()
+        stmt = select(DiagnosticRun).where(DiagnosticRun.run_id == run_id)
+        result = await self.session.execute(stmt)
+        run = result.scalar_one_or_none()
+
         if not run:
-            raise NotFoundError(f"任务不存在: {run_id}", {"run_id": run_id})
+            raise NotFoundError(f"任务不存在：{run_id}", {"run_id": run_id})
 
         try:
+            # 确保规则已加载
+            await self._ensure_rules_loaded()
+
             # 解析事件（如果尚未解析）
-            events = self.parse_service.get_events(run_id)
+            events = await self.parse_service.get_events(run_id)
             if not events:
-                events = self.parse_service.parse_run(run_id)
+                events = await self.parse_service.parse_run(run_id)
 
             # 执行规则匹配，获取匹配的规则列表
-            result, matched_rules = self.rule_engine.evaluate(run_id, events)
+            diag_result, matched_rules = self.rule_engine.evaluate(run_id, events)
 
-            if not result:
+            if not diag_result:
                 raise DiagnosisError(f"规则引擎未能生成诊断结果", {"run_id": run_id})
 
             # 保存结果
-            self._save_result(result)
+            await self._save_result(diag_result)
 
             # 保存规则命中记录
-            self._save_rule_hits(run_id, matched_rules, events)
+            await self._save_rule_hits(run_id, matched_rules, events)
 
             # 索引结果用于相似案例召回
-            self.similar_service.index_run(result)
+            await self.similar_service.index_run(diag_result)
 
             # 更新任务状态
             run.status = RunStatus.DIAGNOSED
             run.finished_at = datetime.utcnow()
-            self.session.commit()
+            await self.session.commit()
 
-            return result
+            return diag_result
 
         except NotFoundError:
             # NotFoundError 直接向上传递
+            await self.session.rollback()
             raise
         except DiagnosisError:
             # DiagnosisError 直接向上传递
+            await self.session.rollback()
             raise
         except Exception as e:
             # 其他异常转换为 DiagnosisError
-            raise DiagnosisError(f"诊断执行失败: {str(e)}", {"run_id": run_id, "error": str(e)})
+            await self.session.rollback()
+            raise DiagnosisError(f"诊断执行失败：{str(e)}", {"run_id": run_id, "error": str(e)})
 
-    def _save_rule_hits(
+    async def _save_rule_hits(
         self,
         run_id: str,
         matched_rules: list,
@@ -96,12 +115,12 @@ class DiagnoseService:
         保存规则命中记录。
 
         Args:
-            run_id: 任务ID
+            run_id: 任务 ID
             matched_rules: 匹配的规则列表
             events: 标准化事件列表
         """
         for rule in matched_rules:
-            # 收集匹配的事件ID
+            # 收集匹配的事件 ID
             matched_event_ids = [
                 e.id for e in events
                 if e.normalized_code in rule.match_all + rule.match_any
@@ -118,7 +137,7 @@ class DiagnoseService:
             )
             self.session.add(hit)
 
-    def _save_result(self, result: DiagnosticResult) -> None:
+    async def _save_result(self, result: DiagnosticResult) -> None:
         """保存诊断结果。"""
         # 将字符串 category 转换为 Category 枚举
         category_enum = Category(result.category) if isinstance(result.category, str) else result.category
@@ -135,9 +154,11 @@ class DiagnoseService:
         )
         self.session.add(db_result)
 
-    def get_result(self, run_id: str) -> Optional[DiagnosticResult]:
+    async def get_result(self, run_id: str) -> Optional[DiagnosticResult]:
         """获取诊断结果。"""
-        db_result = self.session.query(DiagnosticResultDB).filter(DiagnosticResultDB.run_id == run_id).first()
+        stmt = select(DiagnosticResultDB).where(DiagnosticResultDB.run_id == run_id)
+        result = await self.session.execute(stmt)
+        db_result = result.scalar_one_or_none()
 
         if not db_result:
             return None

@@ -6,9 +6,10 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Request, Form, UploadFile, File
+from fastapi import APIRouter, Request, Form, UploadFile, File, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse
 from jinja2 import Environment
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.diagnosis.models import get_session, DiagnosticResultDB, SimilarCaseIndex
 from app.diagnosis.services import (
@@ -18,6 +19,7 @@ from app.diagnosis.services import (
     RuleService,
 )
 from app.diagnosis.exceptions import NotFoundError
+from sqlalchemy import select, func
 
 
 router = APIRouter()
@@ -77,6 +79,13 @@ def render_error_page(message: str, error_type: str, status_code: int) -> str:
     '''
 
 
+# 依赖注入：获取数据库会话
+async def get_db() -> AsyncSession:
+    """获取数据库会话依赖。"""
+    async with get_session() as session:
+        yield session
+
+
 def register_page_routes(router: APIRouter, jinja_env: Environment, template_dir: Path):
     """注册页面路由。"""
 
@@ -86,12 +95,11 @@ def register_page_routes(router: APIRouter, jinja_env: Environment, template_dir
         return template.render(**context)
 
     @router.get("/", response_class=HTMLResponse)
-    async def index(request: Request, filter: Optional[str] = None):
+    async def index(request: Request, filter: Optional[str] = None, session: AsyncSession = Depends(get_db)):
         """首页仪表盘。"""
-        ingest_service = IngestService()
-        all_runs = ingest_service.list_runs(limit=50)
+        ingest_service = IngestService(session=session)
+        all_runs = await ingest_service.list_runs(limit=50)
 
-        session = get_session()
         results = {}
         failed_count = 0
         passed_count = 0
@@ -99,15 +107,16 @@ def register_page_routes(router: APIRouter, jinja_env: Environment, template_dir
         diagnosed_count = 0
 
         for run in all_runs:
-            result = session.query(DiagnosticResultDB).filter(
-                DiagnosticResultDB.run_id == run.run_id
-            ).first()
+            stmt = select(DiagnosticResultDB).where(DiagnosticResultDB.run_id == run.run_id)
+            result = await session.execute(stmt)
+            result = result.scalar_one_or_none()
             if result:
                 results[run.run_id] = result
                 diagnosed_count += 1
-                if result.result_status.value == 'passed':
+                result_status = result.result_status.value if hasattr(result.result_status, 'value') else result.result_status
+                if result_status == 'passed':
                     passed_count += 1
-                elif result.result_status.value == 'failed':
+                elif result_status == 'failed':
                     failed_count += 1
                 else:
                     pending_count += 1
@@ -164,6 +173,7 @@ def register_page_routes(router: APIRouter, jinja_env: Environment, template_dir
     @router.post("/import")
     async def import_upload(
         request: Request,
+        session: AsyncSession = Depends(get_db),
         csrf_token: str = Form(None),
         path: str = Form(None),
         device_serial: str = Form(...),
@@ -175,7 +185,7 @@ def register_page_routes(router: APIRouter, jinja_env: Environment, template_dir
                 return HTMLResponse(content='<div class="alert alert-danger">CSRF 验证失败</div>', status_code=403)
             return HTMLResponse(content="CSRF 验证失败", status_code=403)
 
-        service = IngestService()
+        service = IngestService(session=session)
         metadata = {
             "device_serial": device_serial,
             "test_type": test_type,
@@ -183,7 +193,7 @@ def register_page_routes(router: APIRouter, jinja_env: Environment, template_dir
         metadata = {k: v for k, v in metadata.items() if v}
 
         if path:
-            run_id = service.ingest_path(path, metadata)
+            run_id = await service.ingest_path(path, metadata)
             if is_htmx_request(request):
                 return HTMLResponse(content=f'''
                     <div class="alert alert-success">
@@ -202,6 +212,7 @@ def register_page_routes(router: APIRouter, jinja_env: Environment, template_dir
     @router.post("/import/upload")
     async def import_files_upload(
         request: Request,
+        session: AsyncSession = Depends(get_db),
         csrf_token: str = Form(None),
         files: list[UploadFile] = File(...),
         device_serial: str = Form(...),
@@ -221,14 +232,14 @@ def register_page_routes(router: APIRouter, jinja_env: Environment, template_dir
                 with open(file_path, "wb") as f:
                     shutil.copyfileobj(upload_file.file, f)
 
-            service = IngestService()
+            service = IngestService(session=session)
             metadata = {
                 "device_serial": device_serial,
                 "test_type": test_type,
             }
             metadata = {k: v for k, v in metadata.items() if v}
 
-            run_id = service.ingest_path(temp_dir, metadata)
+            run_id = await service.ingest_path(temp_dir, metadata)
             if is_htmx_request(request):
                 return HTMLResponse(content=f'''
                     <div class="alert alert-success">
@@ -246,17 +257,16 @@ def register_page_routes(router: APIRouter, jinja_env: Environment, template_dir
             shutil.rmtree(temp_dir, ignore_errors=True)
 
     @router.get("/runs", response_class=HTMLResponse)
-    async def runs_list(request: Request):
+    async def runs_list(request: Request, session: AsyncSession = Depends(get_db)):
         """任务列表页面。"""
-        ingest_service = IngestService()
-        runs = ingest_service.list_runs(limit=100)
+        ingest_service = IngestService(session=session)
+        runs = await ingest_service.list_runs(limit=100)
 
-        session = get_session()
         results = {}
         for run in runs:
-            result = session.query(DiagnosticResultDB).filter(
-                DiagnosticResultDB.run_id == run.run_id
-            ).first()
+            stmt = select(DiagnosticResultDB).where(DiagnosticResultDB.run_id == run.run_id)
+            result = await session.execute(stmt)
+            result = result.scalar_one_or_none()
             if result:
                 results[run.run_id] = result
 
@@ -268,15 +278,15 @@ def register_page_routes(router: APIRouter, jinja_env: Environment, template_dir
         return HTMLResponse(content=html)
 
     @router.get("/runs/{run_id}", response_class=HTMLResponse)
-    async def run_detail(request: Request, run_id: str):
+    async def run_detail(request: Request, run_id: str, session: AsyncSession = Depends(get_db)):
         """任务详情页面。"""
-        ingest_service = IngestService()
-        run = ingest_service.get_run(run_id)  # NotFoundError 由服务层抛出，全局处理器捕获
+        ingest_service = IngestService(session=session)
+        run = await ingest_service.get_run(run_id)  # NotFoundError 由服务层抛出，全局处理器捕获
 
-        artifacts = ingest_service.get_artifacts(run_id)
+        artifacts = await ingest_service.get_artifacts(run_id)
 
-        report_service = ReportService()
-        payload = report_service.build_payload(run_id)
+        report_service = ReportService(session=session)
+        payload = await report_service.build_payload(run_id)
 
         html = render_template_with_csrf(
             "runs/detail.html",
@@ -293,21 +303,22 @@ def register_page_routes(router: APIRouter, jinja_env: Environment, template_dir
     async def run_diagnose(
         request: Request,
         run_id: str,
+        session: AsyncSession = Depends(get_db),
         csrf_token: str = Form(...),
     ):
         """执行诊断。"""
         if not validate_csrf_token(request, csrf_token):
             return HTMLResponse(content="CSRF 验证失败", status_code=403)
 
-        service = DiagnoseService()
-        service.diagnose(run_id)
+        service = DiagnoseService(session=session)
+        await service.diagnose(run_id)
         return RedirectResponse(url=f"/runs/{run_id}", status_code=303)
 
     @router.get("/runs/{run_id}/report", response_class=HTMLResponse)
-    async def run_report(request: Request, run_id: str):
+    async def run_report(request: Request, run_id: str, session: AsyncSession = Depends(get_db)):
         """报告详情页面。"""
-        service = ReportService()
-        payload = service.build_payload(run_id)
+        service = ReportService(session=session)
+        payload = await service.build_payload(run_id)
         if not payload:
             raise NotFoundError(f"报告不存在: {run_id}", {"run_id": run_id})
 
@@ -320,20 +331,20 @@ def register_page_routes(router: APIRouter, jinja_env: Environment, template_dir
         keyword: Optional[str] = None,
         category: Optional[str] = None,
         root_cause: Optional[str] = None,
+        session: AsyncSession = Depends(get_db),
     ):
         """案例检索页面。"""
         from rapidfuzz import fuzz
 
-        session = get_session()
-
-        query = session.query(SimilarCaseIndex)
+        stmt = select(SimilarCaseIndex)
 
         if category:
-            query = query.filter(SimilarCaseIndex.category == category)
+            stmt = stmt.where(SimilarCaseIndex.category == category)
         if root_cause:
-            query = query.filter(SimilarCaseIndex.root_cause == root_cause)
+            stmt = stmt.where(SimilarCaseIndex.root_cause == root_cause)
 
-        all_cases = query.order_by(SimilarCaseIndex.updated_at.desc()).all()
+        result = await session.execute(stmt.order_by(SimilarCaseIndex.updated_at.desc()))
+        all_cases = result.scalars().all()
 
         if keyword:
             filtered_cases = []
@@ -345,9 +356,17 @@ def register_page_routes(router: APIRouter, jinja_env: Environment, template_dir
         else:
             cases = all_cases
 
-        total_cases = session.query(SimilarCaseIndex).count()
-        categories = [c[0] for c in session.query(SimilarCaseIndex.category).distinct().all()]
-        root_causes = [c[0] for c in session.query(SimilarCaseIndex.root_cause).distinct().all()]
+        total_cases_stmt = select(func.count()).select_from(SimilarCaseIndex)
+        total_cases_result = await session.execute(total_cases_stmt)
+        total_cases = total_cases_result.scalar()
+
+        categories_stmt = select(SimilarCaseIndex.category).distinct()
+        categories_result = await session.execute(categories_stmt)
+        categories = [c[0] for c in categories_result.all()]
+
+        root_causes_stmt = select(SimilarCaseIndex.root_cause).distinct()
+        root_causes_result = await session.execute(root_causes_stmt)
+        root_causes = [c[0] for c in root_causes_result.all()]
 
         html = render_template("cases/search.html", {
             "request": request,
@@ -369,10 +388,10 @@ def register_page_routes(router: APIRouter, jinja_env: Environment, template_dir
         return HTMLResponse(content=html)
 
     @router.get("/rules", response_class=HTMLResponse)
-    async def rules_list(request: Request):
+    async def rules_list(request: Request, session: AsyncSession = Depends(get_db)):
         """规则列表页面。"""
-        service = RuleService()
-        rules = service.list_rules()
+        service = RuleService(session=session)
+        rules = await service.list_rules()
         html = render_template_with_csrf("rules/list.html", {
             "request": request,
             "rules": rules,
@@ -397,6 +416,7 @@ def register_page_routes(router: APIRouter, jinja_env: Environment, template_dir
     @router.post("/rules")
     async def rule_create(
         request: Request,
+        session: AsyncSession = Depends(get_db),
         csrf_token: str = Form(...),
         rule_id: str = Form(...),
         name: str = Form(...),
@@ -415,7 +435,7 @@ def register_page_routes(router: APIRouter, jinja_env: Environment, template_dir
         if not validate_csrf_token(request, csrf_token):
             return HTMLResponse(content="CSRF 验证失败", status_code=403)
 
-        service = RuleService()
+        service = RuleService(session=session)
         data = {
             "rule_id": rule_id,
             "name": name,
@@ -430,14 +450,14 @@ def register_page_routes(router: APIRouter, jinja_env: Environment, template_dir
             "base_confidence": base_confidence,
             "next_action": next_action or None,
         }
-        service.create_rule(data)
+        await service.create_rule(data)
         return RedirectResponse(url="/rules", status_code=303)
 
     @router.get("/rules/{rule_id}/edit", response_class=HTMLResponse)
-    async def rule_edit(request: Request, rule_id: str):
+    async def rule_edit(request: Request, rule_id: str, session: AsyncSession = Depends(get_db)):
         """编辑规则页面。"""
-        service = RuleService()
-        rule = service.get_rule(rule_id)
+        service = RuleService(session=session)
+        rule = await service.get_rule(rule_id)
         if not rule:
             raise NotFoundError(f"规则不存在: {rule_id}", {"rule_id": rule_id})
 
@@ -453,7 +473,8 @@ def register_page_routes(router: APIRouter, jinja_env: Environment, template_dir
     @router.post("/rules/{rule_id}")
     async def rule_update(
         request: Request,
-        rule_id: str,
+        session: AsyncSession = Depends(get_db),
+        rule_id: str = Form(...),
         csrf_token: str = Form(...),
         name: str = Form(...),
         priority: int = Form(50),
@@ -471,7 +492,7 @@ def register_page_routes(router: APIRouter, jinja_env: Environment, template_dir
         if not validate_csrf_token(request, csrf_token):
             return HTMLResponse(content="CSRF 验证失败", status_code=403)
 
-        service = RuleService()
+        service = RuleService(session=session)
         data = {
             "name": name,
             "priority": priority,
@@ -485,14 +506,15 @@ def register_page_routes(router: APIRouter, jinja_env: Environment, template_dir
             "base_confidence": base_confidence,
             "next_action": next_action or None,
         }
-        service.update_rule(rule_id, data)
+        await service.update_rule(rule_id, data)
         return RedirectResponse(url="/rules", status_code=303)
 
     @router.post("/rules/{rule_id}/delete")
     @router.delete("/rules/{rule_id}/delete")
     async def rule_delete(
         request: Request,
-        rule_id: str,
+        session: AsyncSession = Depends(get_db),
+        rule_id: str = Form(...),
         csrf_token: str = Form(None),
     ):
         """删除规则。"""
@@ -501,11 +523,11 @@ def register_page_routes(router: APIRouter, jinja_env: Environment, template_dir
                 return HTMLResponse(content='<div class="alert alert-danger">CSRF 验证失败</div>', status_code=403)
             return HTMLResponse(content="CSRF 验证失败", status_code=403)
 
-        service = RuleService()
-        service.delete_rule(rule_id)
+        service = RuleService(session=session)
+        await service.delete_rule(rule_id)
 
         if is_htmx_request(request):
-            rules = service.list_rules()
+            rules = await service.list_rules()
             html = render_template("rules/table_body.html", {
                 "request": request,
                 "rules": rules,

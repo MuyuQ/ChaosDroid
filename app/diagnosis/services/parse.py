@@ -1,16 +1,15 @@
-"""解析服务。"""
+"""解析服务 - 异步版本。"""
 
 import logging
 from pathlib import Path
 from typing import Optional
 
-from sqlalchemy.orm import Session
-
-logger = logging.getLogger(__name__)
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.diagnosis.enums import SourceType
 from app.diagnosis.exceptions import ParseError, NotFoundError
-from app.diagnosis.models import DiagnosticRun, RawArtifact, NormalizedEventDB, get_session
+from app.diagnosis.models import DiagnosticRun, RawArtifact, NormalizedEventDB
 from app.diagnosis.normalizer import EventNormalizer
 from app.diagnosis.parsers import (
     RecoveryParser,
@@ -19,6 +18,8 @@ from app.diagnosis.parsers import (
     ArtifactSummaryParser,
 )
 from app.diagnosis.schemas import NormalizedEvent
+
+logger = logging.getLogger(__name__)
 
 
 class ParseService:
@@ -33,9 +34,9 @@ class ParseService:
         SourceType.ARTIFACT_SUMMARY: ArtifactSummaryParser,
     }
 
-    def __init__(self, session: Optional[Session] = None):
+    def __init__(self, session: AsyncSession):
         """初始化服务。"""
-        self.session = session or get_session()
+        self.session = session
         self.normalizer = EventNormalizer()
         self._parsers = {}
 
@@ -47,12 +48,12 @@ class ParseService:
                 self._parsers[source_type] = parser_class()
         return self._parsers.get(source_type)
 
-    def parse_run(self, run_id: str) -> list[NormalizedEvent]:
+    async def parse_run(self, run_id: str) -> list[NormalizedEvent]:
         """
         解析指定任务的所有证据文件。
 
         Args:
-            run_id: 任务ID
+            run_id: 任务 ID
 
         Returns:
             标准化事件列表
@@ -62,12 +63,17 @@ class ParseService:
             ParseError: 解析失败
         """
         # 获取任务
-        run = self.session.query(DiagnosticRun).filter(DiagnosticRun.run_id == run_id).first()
+        stmt = select(DiagnosticRun).where(DiagnosticRun.run_id == run_id)
+        result = await self.session.execute(stmt)
+        run = result.scalar_one_or_none()
+
         if not run:
-            raise NotFoundError(f"任务不存在: {run_id}", {"run_id": run_id})
+            raise NotFoundError(f"任务不存在：{run_id}", {"run_id": run_id})
 
         # 获取证据文件
-        artifacts = self.session.query(RawArtifact).filter(RawArtifact.run_id == run_id).all()
+        stmt = select(RawArtifact).where(RawArtifact.run_id == run_id)
+        result = await self.session.execute(stmt)
+        artifacts = list(result.scalars().all())
 
         all_events: list[NormalizedEvent] = []
 
@@ -79,12 +85,12 @@ class ParseService:
         all_events = self.normalizer.normalize(all_events)
 
         # 保存到数据库
-        self._save_events(all_events)
+        await self._save_events(all_events)
 
         # 更新任务状态
         from app.diagnosis.enums import RunStatus
         run.status = RunStatus.PARSED
-        self.session.commit()
+        await self.session.commit()
 
         return all_events
 
@@ -108,11 +114,9 @@ class ParseService:
         except Exception as e:
             # 记录警告但继续处理其他文件
             logger.warning(f"解析文件失败 {artifact.file_name}: {e}")
-            # 对于严重解析错误，可选择抛出 ParseError
-            # 这里采用宽松策略，允许部分解析失败
             return []
 
-    def _save_events(self, events: list[NormalizedEvent]) -> None:
+    async def _save_events(self, events: list[NormalizedEvent]) -> None:
         """保存事件到数据库。"""
         for event in events:
             db_event = NormalizedEventDB(
@@ -130,9 +134,11 @@ class ParseService:
             )
             self.session.add(db_event)
 
-    def get_events(self, run_id: str) -> list[NormalizedEvent]:
+    async def get_events(self, run_id: str) -> list[NormalizedEvent]:
         """获取任务的事件列表。"""
-        db_events = self.session.query(NormalizedEventDB).filter(NormalizedEventDB.run_id == run_id).all()
+        stmt = select(NormalizedEventDB).where(NormalizedEventDB.run_id == run_id)
+        result = await self.session.execute(stmt)
+        db_events = list(result.scalars().all())
 
         events = []
         for db_event in db_events:

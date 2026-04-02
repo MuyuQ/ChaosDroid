@@ -1,10 +1,11 @@
-"""报告生成服务。"""
+"""报告生成服务 - 异步版本。"""
 
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from app.diagnosis.models import (
@@ -13,7 +14,6 @@ from app.diagnosis.models import (
     NormalizedEventDB,
     DiagnosticResultDB,
     RuleHit,
-    get_session,
 )
 from app.diagnosis.schemas import DiagnosticResult, ReportPayload, NormalizedEvent, SimilarCase
 from app.diagnosis.services.similar import SimilarCaseService
@@ -22,12 +22,12 @@ from app.diagnosis.services.similar import SimilarCaseService
 class ReportService:
     """报告生成服务。"""
 
-    def __init__(self, session: Optional[Session] = None):
+    def __init__(self, session: AsyncSession):
         """初始化服务。"""
-        self.session = session or get_session()
+        self.session = session
         self.similar_service = SimilarCaseService(session)
 
-        # 初始化Jinja2环境
+        # 初始化 Jinja2 环境
         template_dir = Path(__file__).parent.parent / "web" / "templates"
         self.jinja_env = Environment(
             loader=FileSystemLoader(str(template_dir)),
@@ -36,26 +36,34 @@ class ReportService:
         # 注册自定义过滤器
         self.jinja_env.filters["percent"] = lambda value: f"{value:.0%}"
 
-    def build_payload(self, run_id: str) -> Optional[ReportPayload]:
+    async def build_payload(self, run_id: str) -> Optional[ReportPayload]:
         """
         构建报告数据结构。
 
         Args:
-            run_id: 任务ID
+            run_id: 任务 ID
 
         Returns:
             报告数据结构
         """
         # 获取任务信息
-        run = self.session.query(DiagnosticRun).filter(DiagnosticRun.run_id == run_id).first()
+        stmt = select(DiagnosticRun).where(DiagnosticRun.run_id == run_id)
+        result = await self.session.execute(stmt)
+        run = result.scalar_one_or_none()
+
         if not run:
             return None
 
         # 获取证据文件
-        artifacts = self.session.query(RawArtifact).filter(RawArtifact.run_id == run_id).all()
+        stmt = select(RawArtifact).where(RawArtifact.run_id == run_id)
+        result = await self.session.execute(stmt)
+        artifacts = list(result.scalars().all())
 
         # 获取事件
-        db_events = self.session.query(NormalizedEventDB).filter(NormalizedEventDB.run_id == run_id).all()
+        stmt = select(NormalizedEventDB).where(NormalizedEventDB.run_id == run_id)
+        result = await self.session.execute(stmt)
+        db_events = list(result.scalars().all())
+
         events = [
             NormalizedEvent(
                 id=e.id,
@@ -75,7 +83,10 @@ class ReportService:
         ]
 
         # 获取诊断结果
-        db_result = self.session.query(DiagnosticResultDB).filter(DiagnosticResultDB.run_id == run_id).first()
+        stmt = select(DiagnosticResultDB).where(DiagnosticResultDB.run_id == run_id)
+        result = await self.session.execute(stmt)
+        db_result = result.scalar_one_or_none()
+
         result = None
         similar_cases = []
 
@@ -93,10 +104,12 @@ class ReportService:
             )
 
             # 查找相似案例
-            similar_cases = self.similar_service.search(result)
+            similar_cases = await self.similar_service.search(result)
 
         # 获取规则命中
-        rule_hits = self.session.query(RuleHit).filter(RuleHit.run_id == run_id).all()
+        stmt = select(RuleHit).where(RuleHit.run_id == run_id)
+        result = await self.session.execute(stmt)
+        rule_hits = list(result.scalars().all())
 
         return ReportPayload(
             run_id=run.run_id,
@@ -116,13 +129,15 @@ class ReportService:
 
     def export_markdown(self, run_id: str, output_path: str) -> None:
         """
-        导出Markdown报告。
+        导出 Markdown 报告。
 
         Args:
-            run_id: 任务ID
+            run_id: 任务 ID
             output_path: 输出文件路径
         """
-        payload = self.build_payload(run_id)
+        # 同步方法，用于 CLI
+        import asyncio
+        payload = asyncio.get_event_loop().run_until_complete(self.build_payload(run_id))
         if not payload:
             return
 
@@ -131,13 +146,15 @@ class ReportService:
 
     def export_html(self, run_id: str, output_path: str) -> None:
         """
-        导出HTML报告。
+        导出 HTML 报告。
 
         Args:
-            run_id: 任务ID
+            run_id: 任务 ID
             output_path: 输出文件路径
         """
-        payload = self.build_payload(run_id)
+        # 同步方法，用于 CLI
+        import asyncio
+        payload = asyncio.get_event_loop().run_until_complete(self.build_payload(run_id))
         if not payload:
             return
 
@@ -145,11 +162,11 @@ class ReportService:
         Path(output_path).write_text(html_content, encoding="utf-8")
 
     def _render_markdown(self, payload: ReportPayload) -> str:
-        """渲染Markdown报告。"""
+        """渲染 Markdown 报告。"""
         lines = [
             f"# TraceLens 诊断报告",
             f"",
-            f"**任务ID**: {payload.run_id}",
+            f"**任务 ID**: {payload.run_id}",
             f"**生成时间**: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}",
             f"",
             f"## 基本信息",
@@ -204,7 +221,7 @@ class ReportService:
             ])
 
             for case in payload.similar_cases:
-                lines.append(f"- **{case.run_id}**: {case.category}/{case.root_cause} (相似度: {case.similarity_score:.0%})")
+                lines.append(f"- **{case.run_id}**: {case.category}/{case.root_cause} (相似度：{case.similarity_score:.0%})")
 
         lines.extend([
             f"",
@@ -215,7 +232,7 @@ class ReportService:
         return "\n".join(lines)
 
     def _render_html(self, payload: ReportPayload) -> str:
-        """渲染HTML报告（使用Jinja2模板）。"""
+        """渲染 HTML 报告（使用 Jinja2 模板）。"""
         template = self.jinja_env.get_template("reports/report.html")
         return template.render(
             payload=payload,

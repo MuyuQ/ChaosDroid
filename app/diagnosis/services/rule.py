@@ -1,11 +1,13 @@
-"""规则管理服务。"""
+"""规则管理服务 - 异步版本。"""
 
 from typing import Optional
 import yaml
 from pathlib import Path
 
-from sqlalchemy.orm import Session
-from app.diagnosis.models import get_session, DiagnosticRuleDB
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+
+from app.diagnosis.models import DiagnosticRuleDB
 from app.diagnosis.engine.rule import DiagnosticRule
 from app.diagnosis.config import settings
 from app.diagnosis.enums import Category
@@ -14,11 +16,11 @@ from app.diagnosis.enums import Category
 class RuleService:
     """规则管理服务。"""
 
-    def __init__(self, session: Optional[Session] = None):
+    def __init__(self, session: AsyncSession):
         """初始化服务。"""
-        self.session = session or get_session()
+        self.session = session
 
-    def list_rules(self, enabled_only: bool = False) -> list[DiagnosticRuleDB]:
+    async def list_rules(self, enabled_only: bool = False) -> list[DiagnosticRuleDB]:
         """
         获取规则列表。
 
@@ -28,26 +30,28 @@ class RuleService:
         Returns:
             规则列表
         """
-        query = self.session.query(DiagnosticRuleDB)
+        stmt = select(DiagnosticRuleDB)
         if enabled_only:
-            query = query.filter(DiagnosticRuleDB.enabled == True)
-        return query.order_by(DiagnosticRuleDB.priority.desc()).all()
+            stmt = stmt.where(DiagnosticRuleDB.enabled == True)
+        stmt = stmt.order_by(DiagnosticRuleDB.priority.desc())
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
 
-    def get_rule(self, rule_id: str) -> Optional[DiagnosticRuleDB]:
+    async def get_rule(self, rule_id: str) -> Optional[DiagnosticRuleDB]:
         """
         获取单个规则。
 
         Args:
-            rule_id: 规则ID
+            rule_id: 规则 ID
 
         Returns:
-            规则对象或None
+            规则对象或 None
         """
-        return self.session.query(DiagnosticRuleDB).filter(
-            DiagnosticRuleDB.rule_id == rule_id
-        ).first()
+        stmt = select(DiagnosticRuleDB).where(DiagnosticRuleDB.rule_id == rule_id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
 
-    def create_rule(self, data: dict) -> DiagnosticRuleDB:
+    async def create_rule(self, data: dict) -> DiagnosticRuleDB:
         """
         创建新规则。
 
@@ -79,21 +83,21 @@ class RuleService:
             next_action=data.get("next_action"),
         )
         self.session.add(rule)
-        self.session.commit()
+        await self.session.commit()
         return rule
 
-    def update_rule(self, rule_id: str, data: dict) -> Optional[DiagnosticRuleDB]:
+    async def update_rule(self, rule_id: str, data: dict) -> Optional[DiagnosticRuleDB]:
         """
         更新规则。
 
         Args:
-            rule_id: 规则ID
+            rule_id: 规则 ID
             data: 更新数据
 
         Returns:
-            更新后的规则对象或None
+            更新后的规则对象或 None
         """
-        rule = self.get_rule(rule_id)
+        rule = await self.get_rule(rule_id)
         if not rule:
             return None
 
@@ -101,38 +105,38 @@ class RuleService:
             if hasattr(rule, key):
                 setattr(rule, key, value)
 
-        self.session.commit()
+        await self.session.commit()
         return rule
 
-    def delete_rule(self, rule_id: str) -> bool:
+    async def delete_rule(self, rule_id: str) -> bool:
         """
         删除规则。
 
         Args:
-            rule_id: 规则ID
+            rule_id: 规则 ID
 
         Returns:
             是否删除成功
         """
-        rule = self.get_rule(rule_id)
+        rule = await self.get_rule(rule_id)
         if not rule:
             return False
 
-        self.session.delete(rule)
-        self.session.commit()
+        await self.session.delete(rule)
+        await self.session.commit()
         return True
 
-    def export_to_yaml(self, file_path: Optional[Path] = None) -> dict:
+    async def export_to_yaml(self, file_path: Optional[Path] = None) -> dict:
         """
-        导出规则到YAML文件。
+        导出规则到 YAML 文件。
 
         Args:
-            file_path: 导出文件路径，默认为core_rules.yaml
+            file_path: 导出文件路径，默认为 core_rules.yaml
 
         Returns:
             导出的规则数据
         """
-        rules = self.list_rules()
+        rules = await self.list_rules()
         rules_data = {
             "rules": [
                 {
@@ -161,12 +165,12 @@ class RuleService:
 
         return rules_data
 
-    def import_from_yaml(self, file_path: Optional[Path] = None) -> int:
+    async def import_from_yaml(self, file_path: Optional[Path] = None) -> int:
         """
-        从YAML文件导入规则。
+        从 YAML 文件导入规则。
 
         Args:
-            file_path: 导入文件路径，默认为core_rules.yaml
+            file_path: 导入文件路径，默认为 core_rules.yaml
 
         Returns:
             导入的规则数量
@@ -186,32 +190,32 @@ class RuleService:
         count = 0
         for rule_data in data["rules"]:
             # 检查是否已存在
-            existing = self.get_rule(rule_data["rule_id"])
+            existing = await self.get_rule(rule_data["rule_id"])
             if existing:
                 # 更新现有规则
-                self.update_rule(rule_data["rule_id"], rule_data)
+                await self.update_rule(rule_data["rule_id"], rule_data)
             else:
                 # 创建新规则
-                self.create_rule(rule_data)
+                await self.create_rule(rule_data)
             count += 1
 
         return count
 
-    def load_rules_for_engine(self) -> list[DiagnosticRule]:
+    async def load_rules_for_engine(self) -> list[DiagnosticRule]:
         """
         加载规则供规则引擎使用。
 
-        如果数据库中没有规则，会自动从YAML文件导入。
+        如果数据库中没有规则，会自动从 YAML 文件导入。
 
         Returns:
-            DiagnosticRule列表
+            DiagnosticRule 列表
         """
-        rules_db = self.list_rules(enabled_only=True)
+        rules_db = await self.list_rules(enabled_only=True)
 
-        # 如果数据库中没有规则，从YAML文件导入
+        # 如果数据库中没有规则，从 YAML 文件导入
         if not rules_db:
-            self.import_from_yaml()
-            rules_db = self.list_rules(enabled_only=True)
+            await self.import_from_yaml()
+            rules_db = await self.list_rules(enabled_only=True)
 
         rules = []
         for r in rules_db:

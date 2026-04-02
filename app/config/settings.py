@@ -125,6 +125,20 @@ class Settings(BaseSettings):
         description="免认证的路径列表，支持前缀匹配",
     )
 
+    # CSRF 保护配置
+    csrf_secret: str = Field(
+        default="chaosdroid-csrf-secret-change-in-production",
+        description="CSRF 密钥，生产环境必须修改",
+    )
+    csrf_cookie_name: str = Field(
+        default="csrf_token",
+        description="CSRF cookie 名称",
+    )
+    csrf_header_name: str = Field(
+        default="X-CSRF-Token",
+        description="CSRF token 请求头名称",
+    )
+
     model_config = SettingsConfigDict(
         env_prefix="CHAOSDROID_",
         env_file=".env",
