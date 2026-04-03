@@ -55,41 +55,80 @@ async def health_check():
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     """首页."""
-    # 直接返回简单 HTML，包含导航栏
     return HTMLResponse(content="""
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="ChaosDroid - Android 故障注入测试与恢复验证平台">
     <title>ChaosDroid 控制台</title>
     <link rel="stylesheet" href="/static/css/style.css">
     <style>
-        body { font-family: Arial, sans-serif; margin: 0; background: #f5f5f5; }
-        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-        h1 { color: #333; }
-        .card { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; }
-        .stat-card { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px; text-align: center; }
-        .stat-card h3 { margin: 0; font-size: 2em; }
-        .stat-card p { margin: 10px 0 0; opacity: 0.9; }
-        a { color: #667eea; }
-        .btn { display: inline-block; padding: 10px 20px; background: #667eea; color: white; text-decoration: none; border-radius: 4px; margin: 5px; }
-        .btn:hover { background: #5a6fd6; }
-        /* 导航栏样式 */
-        .navbar { background: #1f2937; padding: 1rem; margin-bottom: 2rem; }
-        .navbar .container { display: flex; justify-content: space-between; align-items: center; padding: 0; margin: 0 auto; }
-        .navbar-brand { color: white; font-size: 1.5rem; font-weight: bold; text-decoration: none; }
-        .navbar-nav { display: flex; gap: 1rem; list-style: none; margin: 0; padding: 0; }
-        .navbar-nav a { color: #e5e7eb; text-decoration: none; padding: 0.5rem 1rem; border-radius: 4px; }
-        .navbar-nav a:hover { background: #374151; color: white; }
+        /* 仪表盘统计卡片样式 */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin: 2rem 0;
+        }
+        .stat-card {
+            background: linear-gradient(135deg, var(--primary-color) 0%, #1d4ed8 100%);
+            color: white;
+            padding: 2rem;
+            border-radius: 0.5rem;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2);
+        }
+        .stat-card h3 {
+            margin: 0;
+            font-size: 2.5rem;
+            font-weight: 700;
+        }
+        .stat-card p {
+            margin: 0.5rem 0 0;
+            opacity: 0.95;
+            font-size: 0.875rem;
+        }
+        .quick-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            margin-top: 1rem;
+        }
+        .hero-section {
+            text-align: center;
+            padding: 2rem 0;
+            margin-bottom: 2rem;
+        }
+        .hero-section h1 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+        .hero-section p {
+            color: var(--text-muted);
+            font-size: 1.125rem;
+        }
     </style>
 </head>
 <body>
+    <a href="#main-content" class="skip-link">跳转到主内容</a>
+
     <nav class="navbar" role="navigation" aria-label="主导航">
         <div class="container">
-            <a href="/" class="navbar-brand">ChaosDroid</a>
-            <ul class="navbar-nav" role="menubar">
+            <a href="/" class="navbar-brand" aria-label="ChaosDroid 首页">
+                <strong>ChaosDroid</strong>
+            </a>
+            <button
+                type="button"
+                class="navbar-toggle"
+                aria-expanded="false"
+                aria-controls="navbar-menu"
+                aria-label="切换导航菜单"
+                onclick="toggleNavbar()">
+                ☰
+            </button>
+            <ul class="navbar-nav" id="navbar-menu" role="menubar">
                 <li role="none"><a href="/" role="menuitem">仪表盘</a></li>
                 <li role="none"><a href="/devices" role="menuitem">设备管理</a></li>
                 <li role="none"><a href="/runs" role="menuitem">任务列表</a></li>
@@ -98,43 +137,68 @@ async def index(request: Request):
         </div>
     </nav>
 
-    <div class="container">
-        <h1>ChaosDroid 控制台</h1>
-        <p>Android 故障注入测试与恢复验证平台</p>
+    <main id="main-content" class="main-content" role="main" tabindex="-1">
+        <div class="container">
+            <!-- Hero 区域 -->
+            <div class="hero-section">
+                <h1>ChaosDroid 控制台</h1>
+                <p>Android 故障注入测试与恢复验证平台</p>
+            </div>
 
-        <div class="stats">
-            <div class="stat-card">
-                <h3>0</h3>
-                <p>场景模板</p>
+            <!-- 统计卡片 -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <h3>0</h3>
+                    <p>场景模板</p>
+                </div>
+                <div class="stat-card">
+                    <h3>0</h3>
+                    <p>执行记录</p>
+                </div>
+                <div class="stat-card">
+                    <h3>0</h3>
+                    <p>测试通过</p>
+                </div>
+                <div class="stat-card">
+                    <h3>0</h3>
+                    <p>测试失败</p>
+                </div>
             </div>
-            <div class="stat-card">
-                <h3>0</h3>
-                <p>执行记录</p>
+
+            <!-- 快速操作卡片 -->
+            <div class="card">
+                <div class="card-header">快速操作</div>
+                <div class="quick-actions">
+                    <a href="/api/scenarios" class="btn btn-primary">场景 API</a>
+                    <a href="/api/runs" class="btn btn-primary">执行 API</a>
+                    <a href="/api/reports" class="btn btn-primary">报告 API</a>
+                    <a href="/docs" class="btn btn-primary">Swagger 文档</a>
+                    <a href="/diagnosis" class="btn btn-primary">日志诊断</a>
+                </div>
             </div>
-            <div class="stat-card">
-                <h3>0</h3>
-                <p>测试通过</p>
-            </div>
-            <div class="stat-card">
-                <h3>0</h3>
-                <p>测试失败</p>
+
+            <!-- 系统状态卡片 -->
+            <div class="card">
+                <div class="card-header">系统状态</div>
+                <p style="color: var(--success-color); font-weight: 500;">✓ 服务运行正常，API 已启用</p>
             </div>
         </div>
+    </main>
 
-        <div class="card">
-            <h2>快速操作</h2>
-            <a href="/api/scenarios" class="btn">场景 API</a>
-            <a href="/api/runs" class="btn">执行 API</a>
-            <a href="/api/reports" class="btn">报告 API</a>
-            <a href="/docs" class="btn">Swagger 文档</a>
-            <a href="/diagnosis" class="btn">日志诊断</a>
-        </div>
+    <footer role="contentinfo" style="text-align: center; padding: 2rem; color: var(--text-muted); border-top: 1px solid var(--border-color); margin-top: 2rem;">
+        <p>ChaosDroid - Android fault injection testing and recovery verification platform</p>
+    </footer>
 
-        <div class="card">
-            <h2>系统状态</h2>
-            <p>服务运行正常，API 已启用。</p>
-        </div>
-    </div>
+    <script>
+        // 移动端导航切换
+        function toggleNavbar() {
+            var menu = document.getElementById('navbar-menu');
+            var toggle = document.querySelector('.navbar-toggle');
+            var expanded = toggle.getAttribute('aria-expanded') === 'true';
+            toggle.setAttribute('aria-expanded', !expanded);
+            menu.classList.toggle('show');
+        }
+    </script>
 </body>
 </html>
 """)
@@ -152,7 +216,7 @@ async def scenarios_list(
     from app.services import ScenarioFilters
 
     filters = ScenarioFilters(target_type=target_type, enabled=enabled)
-    scenarios = await list_scenarios(filters)
+    scenarios, total = await list_scenarios(filters)
 
     return _get_templates().TemplateResponse(
         request=request,
@@ -168,8 +232,8 @@ async def scenarios_list(
 @router.get("/scenarios/{scenario_id}", response_class=HTMLResponse)
 async def scenario_detail(request: Request, scenario_id: int):
     """场景详情页面."""
-    scenario = await get_scenario_with_runs(scenario_id)
-    if not scenario:
+    result = await get_scenario_with_runs(scenario_id)
+    if not result:
         raise HTTPException(status_code=404, detail="Scenario not found")
 
     return _get_templates().TemplateResponse(
@@ -177,7 +241,8 @@ async def scenario_detail(request: Request, scenario_id: int):
         name="scenarios/detail.html",
         context={
             "request": request,
-            "scenario": scenario,
+            "scenario": result["scenario"],
+            "recent_runs": result["recent_runs"],
         }
     )
 
@@ -200,17 +265,27 @@ async def runs_list(
         scenario_template_id=scenario_id,
         device_serial=device_serial,
     )
-    runs = await list_runs(filters)
+    runs, total = await list_runs(filters)
 
     # 获取场景列表用于筛选
-    scenarios = await list_scenarios()
+    scenarios, _ = await list_scenarios()
+
+    # 预先加载 report 信息，避免模板懒加载
+    runs_data = []
+    for run in runs:
+        run_dict = {
+            "run": run,
+            "has_report": bool(run.report),
+            "report_id": run.report.id if run.report else None,
+        }
+        runs_data.append(run_dict)
 
     return _get_templates().TemplateResponse(
         request=request,
         name="runs/list.html",
         context={
             "request": request,
-            "runs": runs,
+            "runs_data": runs_data,
             "filters": filters,
             "scenarios": scenarios,
             "status_options": [s.value for s in RunStatus],
@@ -221,8 +296,8 @@ async def runs_list(
 @router.get("/runs/{run_id}", response_class=HTMLResponse)
 async def run_detail(request: Request, run_id: int):
     """执行详情页面."""
-    run = await get_run_with_template(run_id)
-    if not run:
+    result = await get_run_with_template(run_id)
+    if not result:
         raise HTTPException(status_code=404, detail="Run not found")
 
     steps = await get_run_steps(run_id)
@@ -232,7 +307,9 @@ async def run_detail(request: Request, run_id: int):
         name="runs/detail.html",
         context={
             "request": request,
-            "run": run,
+            "run": result["run"],
+            "template": result["template"],
+            "result_summary": result.get("parsed_result_summary"),
             "steps": steps,
         }
     )
@@ -243,7 +320,7 @@ async def run_detail(request: Request, run_id: int):
 @router.get("/reports", response_class=HTMLResponse)
 async def reports_list(request: Request, limit: int = 20):
     """报告列表页面."""
-    reports = await list_reports(limit=limit)
+    reports, _ = await list_reports(limit=limit)
 
     return _get_templates().TemplateResponse(
         request=request,
@@ -447,9 +524,9 @@ async def diagnosis_execute(request: Request, run_id: str, csrf_token: str = Non
 @router.get("/profiles", response_class=HTMLResponse)
 async def profiles_list(request: Request):
     """配置列表页面."""
-    fault_profiles = await list_fault_profiles()
-    validation_profiles = await list_validation_profiles()
-    recovery_profiles = await list_recovery_profiles()
+    fault_profiles, _ = await list_fault_profiles()
+    validation_profiles, _ = await list_validation_profiles()
+    recovery_profiles, _ = await list_recovery_profiles()
 
     return _get_templates().TemplateResponse(
         request=request,
