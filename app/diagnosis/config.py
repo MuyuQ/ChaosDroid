@@ -28,7 +28,7 @@ class Settings(BaseSettings):
 
     # 规则配置
     rules_path: Path = Field(
-        default=Path("src/tracelens/rules"),
+        default=Path("app/diagnosis/rules"),
         description="规则YAML文件路径"
     )
 
