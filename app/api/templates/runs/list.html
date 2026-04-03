@@ -4,7 +4,10 @@
 
 {% block content %}
 <div class="card">
-    <div class="card-header">执行记录</div>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <div class="card-header" style="margin-bottom: 0;">执行记录</div>
+        <a href="/runs/new" class="btn btn-primary" hx-boost="true">新建任务</a>
+    </div>
 
     <!-- 筛选栏 -->
     <div class="filter-bar">
@@ -63,7 +66,7 @@
 
     <!-- 执行列表表格 -->
     <div id="runs-table">
-        {% if runs and runs|length > 0 %}
+        {% if runs_data and runs_data|length > 0 %}
         <table class="table">
             <thead>
                 <tr>
@@ -77,7 +80,8 @@
                 </tr>
             </thead>
             <tbody>
-                {% for run in runs %}
+                {% for run_data in runs_data %}
+                {% set run = run_data.run %}
                 <tr id="run-row-{{ run.id }}">
                     <td>{{ run.id }}</td>
                     <td>
@@ -144,8 +148,8 @@
                                     hx-confirm="确定要取消此执行吗？">
                                 取消
                             </button>
-                            {% elif run.status in ['passed', 'failed', 'partial'] and run.report %}
-                            <a href="/reports/{{ run.report.id }}" class="btn btn-primary btn-sm" hx-boost="true">
+                            {% elif run.status in ['passed', 'failed', 'partial'] and run_data.has_report %}
+                            <a href="/reports/{{ run_data.report_id }}" class="btn btn-primary btn-sm" hx-boost="true">
                                 报告
                             </a>
                             {% endif %}

@@ -291,6 +291,29 @@ async def runs_list(
     )
 
 
+@router.get("/runs/new", response_class=HTMLResponse)
+async def runs_new(request: Request):
+    """新建执行任务页面."""
+    # 获取场景列表
+    scenarios, _ = await list_scenarios()
+
+    # 获取 CSRF token
+    import secrets
+    csrf_token = request.cookies.get("csrf_token")
+    if not csrf_token:
+        csrf_token = secrets.token_hex(32)
+
+    return _get_templates().TemplateResponse(
+        request=request,
+        name="runs/new.html",
+        context={
+            "request": request,
+            "scenarios": scenarios,
+            "csrf_token": csrf_token,
+        }
+    )
+
+
 @router.get("/runs/{run_id}", response_class=HTMLResponse)
 async def run_detail(request: Request, run_id: int):
     """执行详情页面."""

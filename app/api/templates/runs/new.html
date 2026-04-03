@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+
+{% block title %}新建任务 - ChaosDroid{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">新建执行任务</div>
+
+    <form id="create-run-form" style="margin-top: 1.5rem;">
+        <!-- 场景选择 -->
+        <div class="form-group">
+            <label class="form-label" for="scenario_id">选择场景</label>
+            <select id="scenario_id" name="scenario_id" class="form-select" required>
+                <option value="">-- 请选择场景 --</option>
+                {% for scenario in scenarios %}
+                <option value="{{ scenario.id }}">{{ scenario.name }}</option>
+                {% endfor %}
+            </select>
+            {% if not scenarios %}
+            <p style="color: var(--text-muted); margin-top: 0.5rem; font-size: 0.875rem;">
+                暂无场景，请先前往 <a href="/scenarios" hx-boost="true">场景管理</a> 创建场景
+            </p>
+            {% endif %}
+        </div>
+
+        <!-- 设备序列号 -->
+        <div class="form-group">
+            <label class="form-label" for="device_serial">设备序列号</label>
+            <input type="text" id="device_serial" name="device_serial" class="form-input"
+                   placeholder="输入设备序列号，留空则自动分配" />
+        </div>
+
+        <!-- 执行模式 -->
+        <div class="form-group">
+            <label class="form-label" for="executor_mode">执行模式</label>
+            <select id="executor_mode" name="executor_mode" class="form-select" required>
+                <option value="mock">Mock 模式（模拟执行）</option>
+                <option value="real">Real 模式（真实执行）</option>
+            </select>
+        </div>
+
+        <!-- 注入阶段 -->
+        <div class="form-group">
+            <label class="form-label" for="inject_stage">注入阶段</label>
+            <select id="inject_stage" name="inject_stage" class="form-select">
+                <option value="precheck">Precheck（预检查）</option>
+                <option value="runtime">Runtime（运行时）</option>
+                <option value="reboot_wait">Reboot Wait（重启等待）</option>
+                <option value="post_boot">Post Boot（启动后）</option>
+            </select>
+            <p style="color: var(--text-muted); margin-top: 0.5rem; font-size: 0.875rem;">
+                留空则使用场景模板的配置
+            </p>
+        </div>
+
+        <!-- 提交按钮 -->
+        <div style="display: flex; gap: 0.75rem; margin-top: 1.5rem;">
+            <button type="submit" class="btn btn-primary">创建任务</button>
+            <a href="/runs" class="btn btn-secondary" hx-boost="true">取消</a>
+        </div>
+    </form>
+
+    <!-- 结果显示 -->
+    <div id="result" style="margin-top: 1.5rem;"></div>
+</div>
+
+<script>
+document.getElementById('create-run-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+
+    const form = e.target;
+    const formData = new FormData(form);
+    const resultDiv = document.getElementById('result');
+
+    // 获取 CSRF token
+    const csrfToken = document.getElementById('csrf-token')?.value || getCsrfTokenFromCookie();
+
+    // 显示加载状态
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const originalText = submitBtn.textContent;
+    submitBtn.textContent = '创建中...';
+    submitBtn.disabled = true;
+
+    try {
+        const response = await fetch('/api/runs', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken
+            },
+            body: JSON.stringify({
+                scenario_template_id: formData.get('scenario_id') ? parseInt(formData.get('scenario_id')) : null,
+                device_serial: formData.get('device_serial') || '',
+                executor_mode: formData.get('executor_mode') || 'mock',
+                inject_stage: formData.get('inject_stage') || null
+            })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            resultDiv.innerHTML = `
+                <div class="alert alert-success">
+                    <strong>任务创建成功！</strong>
+                    <div style="margin-top: 0.5rem;">
+                        <a href="/runs/${data.id}" hx-boost="true">查看任务详情</a>
+                    </div>
+                </div>
+            `;
+            // 3 秒后跳转到任务列表
+            setTimeout(() => {
+                window.location.href = '/runs';
+            }, 2000);
+        } else {
+            resultDiv.innerHTML = `
+                <div class="alert alert-error">
+                    <strong>创建失败：</strong>${data.detail || '未知错误'}
+                </div>
+            `;
+            submitBtn.textContent = originalText;
+            submitBtn.disabled = false;
+        }
+    } catch (error) {
+        resultDiv.innerHTML = `
+            <div class="alert alert-error">
+                <strong>请求失败：</strong>${error.message}
+            </div>
+        `;
+        submitBtn.textContent = originalText;
+        submitBtn.disabled = false;
+    }
+});
+
+// 从 Cookie 获取 CSRF token
+function getCsrfTokenFromCookie() {
+    const cookies = document.cookie.split(';');
+    for (let i = 0; i < cookies.length; i++) {
+        const cookie = cookies[i].trim();
+        if (cookie.startsWith('csrf_token=')) {
+            return cookie.substring('csrf_token='.length);
+        }
+    }
+    return null;
+}
+</script>
+{% endblock %}
