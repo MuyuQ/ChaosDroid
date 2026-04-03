@@ -112,6 +112,7 @@ class Settings(BaseSettings):
         "env_prefix": "TRACELENS_",
         "env_file": ".env",
         "env_file_encoding": "utf-8",
+        "extra": "ignore",
     }
 
 
