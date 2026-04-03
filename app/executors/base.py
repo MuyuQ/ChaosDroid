@@ -172,3 +172,16 @@ class BaseDeviceExecutor(ABC):
     async def get_logcat(self, lines: int = 1000) -> str:
         """获取logcat日志"""
         pass
+    @abstractmethod
+    async def pull_directory(self, device_path: str, local_path: str) -> bool:
+        """
+        从设备拉取目录
+
+        Args:
+            device_path: 设备上的目录路径
+            local_path: 本地目标路径
+
+        Returns:
+            True 如果成功
+        """
+        pass

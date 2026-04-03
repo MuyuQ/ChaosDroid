@@ -13,6 +13,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.api.routes import scenarios, runs, reports, devices, profiles, web, pools, diagnosis
 from app.config.settings import get_settings
 from app.models.database import init_engine, create_tables
+from app.workers.diagnosis_worker import DiagnosisWorker
 
 
 CSRF_TOKEN_COOKIE = "csrf_token"
@@ -116,13 +117,33 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+_diagnosis_worker: DiagnosisWorker | None = None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理。"""
+    global _diagnosis_worker
+
     settings = get_settings()
     init_engine(settings.database_path)
     await create_tables()
+
+    # 启动诊断 Worker
+    _diagnosis_worker = DiagnosisWorker(poll_interval_sec=5, batch_size=10)
+    import asyncio
+    worker_task = asyncio.create_task(_diagnosis_worker.start())
+
     yield
+
+    # 停止诊断 Worker
+    if _diagnosis_worker:
+        await _diagnosis_worker.stop()
+        worker_task.cancel()
+        try:
+            await worker_task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(

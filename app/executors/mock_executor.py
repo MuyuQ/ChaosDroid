@@ -663,3 +663,9 @@ class MockDeviceExecutor(BaseDeviceExecutor):
     def get_state(self) -> MockDeviceState:
         """获取设备状态对象（用于注入器操作）"""
         return self.state
+
+    async def pull_directory(self, device_path: str, local_path: str) -> bool:
+        """从设备拉取目录到本地（Mock 实现）."""
+        await self._simulate_delay(300, 800)
+        # Mock 设备返回成功
+        return self.state.online

@@ -7,7 +7,7 @@
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, Index, JSON
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, Index, JSON, Float
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, InjectStage, RunStatus, StepStatus, StepType, TargetType, ExecutorMode, TimestampMixin
@@ -244,6 +244,33 @@ class ScenarioRun(Base, TimestampMixin):
         default=True,
         nullable=False,
         comment="是否可被抢占"
+    )
+
+    # ===== 新增：诊断结果关联字段 =====
+    diagnosis_run_id: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="诊断系统任务 ID"
+    )
+    diagnosis_category: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="诊断分类"
+    )
+    diagnosis_root_cause: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="诊断根因"
+    )
+    diagnosis_confidence: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+        comment="诊断置信度 (0-1)"
+    )
+    diagnosis_completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True,
+        comment="诊断完成时间"
     )
 
     # 关系定义

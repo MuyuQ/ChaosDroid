@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "chaosdroid"
-version = "0.1.0"
-description = "Android fault injection testing and recovery verification platform"
+version = "0.2.0"
+description = "Android fault injection testing and recovery verification platform with TraceLens diagnosis integration"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"

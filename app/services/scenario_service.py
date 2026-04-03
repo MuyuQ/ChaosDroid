@@ -146,8 +146,13 @@ async def list_scenarios(
         元组：(场景模板列表, 总数)
     """
     async def _execute_query(sess: AsyncSession) -> tuple[list[ScenarioTemplate], int]:
+        from sqlalchemy.orm import joinedload
         # 构建基础查询
-        query = select(ScenarioTemplate)
+        query = select(ScenarioTemplate).options(
+            joinedload(ScenarioTemplate.fault_profile),
+            joinedload(ScenarioTemplate.validation_profile),
+            joinedload(ScenarioTemplate.recovery_profile),
+        )
         count_query = select(func.count(ScenarioTemplate.id))
 
         # 应用筛选条件
@@ -376,9 +381,16 @@ async def get_scenario_with_runs(
         包含场景模板和执行记录的字典
     """
     async def _get(sess: AsyncSession) -> dict | None:
-        # 查询场景
+        # 查询场景，使用 joinedload 预加载关联的 profile 对象
+        from sqlalchemy.orm import joinedload
         result = await sess.execute(
-            select(ScenarioTemplate).where(ScenarioTemplate.id == scenario_id)
+            select(ScenarioTemplate)
+            .options(
+                joinedload(ScenarioTemplate.fault_profile),
+                joinedload(ScenarioTemplate.validation_profile),
+                joinedload(ScenarioTemplate.recovery_profile),
+            )
+            .where(ScenarioTemplate.id == scenario_id)
         )
         scenario = result.scalar_one_or_none()
 

@@ -1,69 +1,96 @@
 # ChaosDroid 部署指南
 
-## 快速部署
+**Android 设备故障注入测试与诊断恢复验证平台**
 
-### 1. 环境准备
+本文档提供 ChaosDroid 的完整部署说明，包括 TraceLens 诊断模块集成。
+
+---
+
+## 部署方式总览
+
+| 方式 | 适用场景 | 推荐度 |
+|------|---------|--------|
+| Docker Compose | 生产环境/容器化部署 | ⭐⭐⭐⭐⭐ |
+| Linux systemd | 生产环境/Linux 服务器 | ⭐⭐⭐⭐ |
+| Windows 手动部署 | 开发环境/Windows | ⭐⭐⭐ |
+| 直接运行 | 快速测试/开发 | ⭐⭐ |
+
+---
+
+## 方式一：Docker Compose（推荐）
+
+### 前提条件
+
+- Docker 20.10+
+- Docker Compose 2.0+
+
+### 部署步骤
 
 ```bash
-# 确保 Python 3.10+ 已安装
-python --version
-
-# 进入项目目录
-cd E:\git_repositories\ChaosDroid
-```
-
-### 2. 安装依赖
-
-```bash
-# 创建虚拟环境（如果尚未创建）
-python -m venv .venv
-
-# 激活虚拟环境（Windows）
-.venv\Scripts\activate
-
-# 安装依赖
-pip install -e .
-```
-
-### 3. 配置文件
-
-```bash
-# 复制环境配置模板
+# 1. 复制配置文件
 cp .env.example .env
+cp .env.production .env.production
 
-# 编辑 .env 文件，修改以下配置：
-# - CHAOSDROID_API_KEYS: 设置你的 API Key
-# - CHAOSDROID_CSRF_SECRET: 设置 CSRF 密钥（生产环境必须修改）
+# 2. 编辑生产配置
+# 修改：CHAOSDROID_API_KEYS, CHAOSDROID_CSRF_SECRET
+
+# 3. 构建并启动
+docker-compose up -d --build
+
+# 4. 查看状态
+docker-compose ps
+docker-compose logs -f
+
+# 5. 执行数据库迁移
+docker-compose exec chaosdroid python migrations/001_tracelens_integration.py
+
+# 6. 停止服务
+docker-compose down
+
+# 7. 重启服务
+docker-compose restart
 ```
 
-### 4. 创建必要目录
+### 访问地址
+
+http://localhost:8000
+
+---
+
+## 方式二：Linux systemd 服务
+
+### 前提条件
+
+- Python 3.10+
+- Ubuntu 20.04+/Debian 11+
+- root 权限
+
+### 部署步骤
 
 ```bash
-# 脚本会自动创建以下目录：
-# - logs/         日志文件
-# - data/         诊断数据
-# - artifacts/    执行产物
-# - reports/      报告输出
+# 1. 执行部署脚本
+sudo ./deploy.sh
+
+# 2. 编辑配置文件
+sudo nano /opt/chaosdroid/.env
+# 修改：CHAOSDROID_API_KEYS, CHAOSDROID_CSRF_SECRET
+
+# 3. 启动服务
+sudo systemctl start chaosdroid
+
+# 4. 设置开机自启
+sudo systemctl enable chaosdroid
+
+# 5. 查看状态
+sudo systemctl status chaosdroid
+
+# 6. 查看日志
+sudo journalctl -u chaosdroid -f
 ```
 
-### 5. 启动服务器
+### 访问地址
 
-```bash
-# 方式 1: 使用启动脚本（推荐）
-.venv\Scripts\python.exe start_server.py
-
-# 方式 2: 使用 uvicorn 直接启动
-.venv\Scripts\uvicorn.exe app.api.main:app --host 0.0.0.0 --port 8000
-
-# 方式 3: 使用 CLI 命令（安装后）
-chaosdroid serve
-```
-
-### 6. 访问应用
-
-- **Web UI**: http://localhost:8000/
-- **API 文档**: http://localhost:8000/docs
-- **诊断界面**: http://localhost:8000/diagnosis
+http://localhost:8000
 
 ---
 
@@ -196,3 +223,9 @@ pip install -e . --force-reinstall
 - **ChaosDroid**: 0.1.0
 - **Python**: 3.10+
 - **FastAPI**: 0.100.0+
+
+## 相关文档
+
+- 快速部署：[DEPLOY.md](DEPLOY.md)
+- TraceLens 集成：[docs/TRACLENS_INTEGRATION.md](docs/TRACLENS_INTEGRATION.md)
+- 使用指南：[README.md](README.md)

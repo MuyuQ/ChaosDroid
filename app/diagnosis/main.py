@@ -8,7 +8,7 @@ from rich.panel import Panel
 from app.diagnosis.models import init_db
 from app.diagnosis.services import IngestService, ParseService, DiagnoseService, ReportService, SimilarCaseService
 
-app = typer.Typer(name="tracelens", help="Android upgrade/stability testing diagnostic workbench")
+app = typer.Typer(name="chaosdroid-diagnosis", help="Android 故障诊断工作台")
 console = Console()
 
 
@@ -166,7 +166,7 @@ def diagnose(run_id: str):
         f"根因: [red]{result.root_cause}[/red]\n"
         f"置信度: [green]{result.confidence:.0%}[/green]\n"
         f"状态: [bold]{result.result_status.value}[/bold]",
-        title="TraceLens 诊断报告",
+        title="ChaosDroid 诊断报告",
     ))
 
     if result.next_action:

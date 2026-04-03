@@ -140,9 +140,16 @@ async def get_run_with_template(
         包含执行记录和场景模板的字典
     """
     async def _get(sess: AsyncSession) -> dict | None:
+        from sqlalchemy.orm import selectinload, joinedload
+        import json
         result = await sess.execute(
             select(ScenarioRun)
-            .options(selectinload(ScenarioRun.scenario_template))
+            .options(
+                selectinload(ScenarioRun.scenario_template),
+                joinedload(ScenarioRun.report),
+                selectinload(ScenarioRun.steps),
+                selectinload(ScenarioRun.artifacts),
+            )
             .where(ScenarioRun.id == run_id)
         )
         run = result.scalar_one_or_none()
@@ -150,9 +157,21 @@ async def get_run_with_template(
         if not run:
             return None
 
+        # 解析 result_summary_json 为字典
+        parsed_result_summary = None
+        if run.result_summary_json:
+            if isinstance(run.result_summary_json, str):
+                try:
+                    parsed_result_summary = json.loads(run.result_summary_json)
+                except (json.JSONDecodeError, TypeError):
+                    parsed_result_summary = run.result_summary_json
+            else:
+                parsed_result_summary = run.result_summary_json
+
         return {
             "run": run,
             "template": run.scenario_template,
+            "parsed_result_summary": parsed_result_summary,
         }
 
     if session:
@@ -181,8 +200,12 @@ async def list_runs(
         元组：(执行记录列表, 总数)
     """
     async def _execute_query(sess: AsyncSession) -> tuple[list[ScenarioRun], int]:
-        # 构建基础查询
-        query = select(ScenarioRun)
+        from sqlalchemy.orm import selectinload, joinedload
+        # 构建基础查询，预加载 scenario_template 和 report
+        query = select(ScenarioRun).options(
+            selectinload(ScenarioRun.scenario_template),
+            joinedload(ScenarioRun.report),
+        )
         count_query = select(func.count(ScenarioRun.id))
 
         # 应用筛选条件

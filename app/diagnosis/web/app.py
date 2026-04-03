@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from app.diagnosis.models import init_db, get_session
-from app.diagnosis.exceptions import TraceLensError, get_status_code
+from app.diagnosis.exceptions import DiagnosisError, get_status_code
 from app.diagnosis.web.routes import (
     create_pages_router,
     create_api_router,
@@ -23,8 +23,8 @@ def create_app() -> FastAPI:
     init_db()
 
     app = FastAPI(
-        title="TraceLens",
-        description="Android upgrade/stability testing diagnostic workbench",
+        title="ChaosDroid Diagnosis",
+        description="Android 故障诊断工作台",
         version="0.1.0",
     )
 
@@ -37,10 +37,10 @@ def create_app() -> FastAPI:
         autoescape=select_autoescape(["html", "xml"]),
     )
 
-    # 注册 TraceLens 异常处理器
-    @app.exception_handler(TraceLensError)
-    def tracelens_error_handler(request: Request, exc: TraceLensError):
-        """统一处理 TraceLens 业务异常。"""
+    # 注册诊断异常处理器
+    @app.exception_handler(DiagnosisError)
+    def diagnosis_error_handler(request: Request, exc: DiagnosisError):
+        """统一处理 Diagnosis 业务异常。"""
         status_code = get_status_code(exc)
 
         # API 请求返回 JSON

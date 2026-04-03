@@ -1,19 +1,19 @@
-"""TraceLens - Android upgrade/stability testing diagnostic workbench."""
+"""ChaosDroid Diagnosis - Android 故障诊断工作台。"""
 
 __version__ = "0.1.0"
 
 from app.diagnosis.exceptions import (
-    TraceLensError,
+    DiagnosisError,
     ValidationError,
     NotFoundError,
     ParseError,
-    DiagnosisError,
+    InternalError,
 )
 
 __all__ = [
-    "TraceLensError",
+    "DiagnosisError",
     "ValidationError",
     "NotFoundError",
     "ParseError",
-    "DiagnosisError",
+    "InternalError",
 ]

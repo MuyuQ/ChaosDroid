@@ -1,15 +1,15 @@
-"""TraceLens 统一异常处理模块。
+"""ChaosDroid Diagnosis 统一异常处理模块。
 
-定义 ServiceError 异常层次结构，用于服务层错误处理和 Web 层响应映射。
+定义诊断模块异常层次结构，用于服务层错误处理和 Web 层响应映射。
 """
 
 from typing import Optional
 
 
-class TraceLensError(Exception):
-    """TraceLens 基础异常类。
+class DiagnosisError(Exception):
+    """ChaosDroid Diagnosis 基础异常类。
 
-    所有 TraceLens 业务异常都应继承此类。
+    所有诊断模块业务异常都应继承此类。
     """
 
     def __init__(
@@ -38,7 +38,7 @@ class TraceLensError(Exception):
         return result
 
 
-class ValidationError(TraceLensError):
+class ValidationError(DiagnosisError):
     """输入验证错误。
 
     用于输入参数不合法的情况，如路径不存在、格式错误等。
@@ -48,7 +48,7 @@ class ValidationError(TraceLensError):
     pass
 
 
-class NotFoundError(TraceLensError):
+class NotFoundError(DiagnosisError):
     """资源不存在错误。
 
     用于请求的资源不存在的情况，如任务不存在、规则不存在等。
@@ -58,7 +58,7 @@ class NotFoundError(TraceLensError):
     pass
 
 
-class ParseError(TraceLensError):
+class ParseError(DiagnosisError):
     """解析失败错误。
 
     用于日志解析失败的情况，如文件格式错误、解析异常等。
@@ -68,7 +68,7 @@ class ParseError(TraceLensError):
     pass
 
 
-class DiagnosisError(TraceLensError):
+class InternalError(DiagnosisError):
     """诊断失败错误。
 
     用于诊断执行失败的情况，如规则引擎异常、数据缺失等。
@@ -83,15 +83,15 @@ ERROR_STATUS_MAP = {
     ValidationError: 400,
     NotFoundError: 404,
     ParseError: 422,
-    DiagnosisError: 500,
+    InternalError: 500,
 }
 
 
-def get_status_code(error: TraceLensError) -> int:
+def get_status_code(error: DiagnosisError) -> int:
     """根据异常类型获取对应的 HTTP 状态码。
 
     Args:
-        error: TraceLens 异常实例
+        error: Diagnosis 异常实例
 
     Returns:
         HTTP 状态码

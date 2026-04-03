@@ -12,7 +12,7 @@ class Settings(BaseSettings):
 
     # 数据库配置
     database_url: str = Field(
-        default="sqlite+aiosqlite:///data/tracelens.db",
+        default="sqlite+aiosqlite:///chaosdroid.db",
         description="数据库连接URL"
     )
 
@@ -109,7 +109,7 @@ class Settings(BaseSettings):
     )
 
     model_config = {
-        "env_prefix": "TRACELENS_",
+        "env_prefix": "CHAOSDROID_DIAGNOSIS_",
         "env_file": ".env",
         "env_file_encoding": "utf-8",
         "extra": "ignore",

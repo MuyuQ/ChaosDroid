@@ -40,6 +40,7 @@ from app.services.device_lock_manager import (
 )
 from app.services.report_generator import ReportData, ReportGenerator
 from app.services.recovery_service import RecoveryService
+from app.services.event_dispatcher import EventDispatcher
 from app.validators.base import (
     BaseValidator,
     DefaultValidator,
@@ -210,6 +211,11 @@ class ExecutionService:
                 context=context,
                 final_status=final_status,
             )
+
+            # 发布任务完成事件，触发诊断流程
+            async with get_session_context() as session:
+                dispatcher = EventDispatcher(session)
+                await dispatcher.publish_run_completed(scenario_run_id)
 
             logger.info(f"场景执行完成 run_id={scenario_run_id}, status={final_status}")
             return final_status

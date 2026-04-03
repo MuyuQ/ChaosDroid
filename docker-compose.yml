@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  chaosdroid:
+    build: .
+    container_name: chaosdroid
+    restart: unless-stopped
+    ports:
+      - "${CHAOSDROID_WEB_PORT:-8000}:8000"
+    volumes:
+      # 持久化数据
+      - chaosdroid-data:/var/lib/chaosdroid
+      - chaosdroid-logs:/var/log/chaosdroid
+      # 挂载配置文件（复制生产配置为 .env）
+      - ./.env.production:/app/.env:ro
+    environment:
+      - CHAOSDROID_WEB_HOST=0.0.0.0
+      - CHAOSDROID_WEB_PORT=8000
+      # TraceLens 诊断配置
+      - TRACELENS_DATABASE_URL=sqlite+aiosqlite:///./data/tracelens.db
+      - TRACELENS_ARTIFACTS_BASE_PATH=/var/lib/chaosdroid/artifacts/raw
+    networks:
+      - chaosdroid-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  chaosdroid-data:
+    driver: local
+  chaosdroid-logs:
+    driver: local
+
+networks:
+  chaosdroid-network:
+    driver: bridge
+
+# 使用说明:
+# 1. 复制 .env.example 为 .env
+# 2. 编辑 .env 配置 API Key 和 CSRF Secret
+# 3. docker-compose up -d --build
+# 4. docker-compose exec chaosdroid python migrations/001_tracelens_integration.py
+# 5. 访问 http://localhost:8000

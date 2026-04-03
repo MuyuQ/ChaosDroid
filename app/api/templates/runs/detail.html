@@ -134,14 +134,13 @@
                 {% endif %}
             </span>
         </div>
-        {% if run.result_summary_json %}
+        {% if result_summary %}
         <div class="property-item">
             <span class="property-label">故障注入结果</span>
             <span class="property-value">
-                {% set result = run.result_summary_json %}
-                {% if 'fault_injected' in result and result['fault_injected'] %}
+                {% if result_summary.get('fault_injected') %}
                     <span class="badge badge-success">注入成功</span>
-                {% elif 'fault_injected' in result %}
+                {% elif 'fault_injected' in result_summary %}
                     <span class="badge badge-danger">注入失败</span>
                 {% else %}
                     未知
@@ -151,9 +150,9 @@
         <div class="property-item">
             <span class="property-label">验证结果</span>
             <span class="property-value">
-                {% if 'validation_passed' in result and result['validation_passed'] %}
+                {% if result_summary.get('validation_passed') %}
                     <span class="badge badge-success">验证通过</span>
-                {% elif 'validation_passed' in result %}
+                {% elif 'validation_passed' in result_summary %}
                     <span class="badge badge-danger">验证失败</span>
                 {% else %}
                     未知
@@ -163,9 +162,9 @@
         <div class="property-item">
             <span class="property-label">恢复结果</span>
             <span class="property-value">
-                {% if 'recovery_passed' in result and result['recovery_passed'] %}
+                {% if result_summary.get('recovery_passed') %}
                     <span class="badge badge-success">恢复成功</span>
-                {% elif 'recovery_passed' in result %}
+                {% elif 'recovery_passed' in result_summary %}
                     <span class="badge badge-danger">恢复失败</span>
                 {% else %}
                     未知
@@ -175,7 +174,7 @@
         <div class="property-item">
             <span class="property-label">风险等级</span>
             <span class="property-value">
-                {% set risk_level = result.get('risk_level', 'unknown') %}
+                {% set risk_level = result_summary.get('risk_level', 'unknown') %}
                 {% if risk_level == 'low' %}
                     <span class="badge badge-success">低风险</span>
                 {% elif risk_level == 'medium' %}
@@ -353,6 +352,32 @@
         {% endif %}
     </div>
 </div>
+
+<!-- 诊断结果 -->
+{% if run.diagnosis_category %}
+<div class="card">
+    <div class="card-header">诊断结果</div>
+    <div class="diagnosis-summary">
+        <span class="badge badge-{{ run.diagnosis_category }}">
+            {{ run.diagnosis_category }}
+        </span>
+        <p class="root-cause"><strong>根因:</strong> {{ run.diagnosis_root_cause }}</p>
+        <p class="confidence"><strong>置信度:</strong> {{ (run.diagnosis_confidence * 100)|int }}%</p>
+        {% if run.diagnosis_completed_at %}
+        <p class="completed-at"><strong>完成时间:</strong> {{ run.diagnosis_completed_at.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+        {% endif %}
+        <a href="/diagnosis/{{ run.diagnosis_run_id }}" class="btn btn-sm btn-primary">
+            查看详情
+        </a>
+    </div>
+</div>
+{% elif run.finished_at %}
+<div class="card">
+    <div class="card-header">诊断结果</div>
+    <p class="text-muted">诊断任务正在排队中...</p>
+    <small class="text-muted">提示：诊断在后台异步执行，请稍后刷新页面</small>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}

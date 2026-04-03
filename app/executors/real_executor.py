@@ -404,3 +404,17 @@ class RealDeviceExecutor(BaseDeviceExecutor):
             timeout=60
         )
         return result.stdout if result.success else ""
+    async def pull_directory(self, device_path: str, local_path: str) -> bool:
+        """从设备拉取目录到本地."""
+        result = await self._run_adb_command(
+            "pull", device_path, local_path,
+            timeout=300
+        )
+        if not result.success:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"adb pull 失败：device_path={device_path}, local_path={local_path}, stderr={result.stderr}"
+            )
+            return False
+        return True

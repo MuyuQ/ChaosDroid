@@ -13,36 +13,6 @@
     --text-muted: #64748b;
 }
 
-/* 暗黑模式支持 */
-@media (prefers-color-scheme: dark) {
-    :root {
-        --primary-color: #3b82f6;
-        --secondary-color: #94a3b8;
-        --success-color: #4ade80;
-        --warning-color: #fbbf24;
-        --danger-color: #f87171;
-        --background-color: #0f172a;
-        --card-background: #1e293b;
-        --border-color: #334155;
-        --text-color: #f1f5f9;
-        --text-muted: #94a3b8;
-    }
-}
-
-/* 手动暗黑模式切换 */
-[data-theme="dark"] {
-    --primary-color: #3b82f6;
-    --secondary-color: #94a3b8;
-    --success-color: #4ade80;
-    --warning-color: #fbbf24;
-    --danger-color: #f87171;
-    --background-color: #0f172a;
-    --card-background: #1e293b;
-    --border-color: #334155;
-    --text-color: #f1f5f9;
-    --text-muted: #94a3b8;
-}
-
 * {
     margin: 0;
     padding: 0;
@@ -606,5 +576,98 @@ body {
     .card {
         box-shadow: none;
         border: 1px solid #ccc;
+    }
+}
+
+/* 诊断结果面板样式 */
+.diagnosis-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.diagnosis-summary .badge {
+    display: inline-block;
+    padding: 0.375rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-transform: capitalize;
+    align-self: flex-start;
+}
+
+/* 诊断分类标签颜色 */
+.badge-kernel_panic { background-color: #fee2e2; color: #b91c1c; }
+.badge-watchdog { background-color: #fef3c7; color: #b45309; }
+.badge-sysrq { background-color: #fee2e2; color: #b91c1c; }
+.badge-power_off { background-color: #e0f2fe; color: #0369a1; }
+.badge-reboot { background-color: #e0f2fe; color: #0369a1; }
+.badge-exception { background-color: #fef3c7; color: #b45309; }
+.badge-spinlock { background-color: #fee2e2; color: #b91c1c; }
+.badge-memory { background-color: #fef3c7; color: #b45309; }
+.badge-deadlock { background-color: #fee2e2; color: #b91c1c; }
+.badge-null_pointer { background-color: #fee2e2; color: #b91c1c; }
+.badge-use_after_free { background-color: #fee2e2; color: #b91c1c; }
+.badge-double_free { background-color: #fee2e2; color: #b91c1c; }
+.badge-buffer_overflow { background-color: #fee2e2; color: #b91c1c; }
+.badge-corrupted_stack { background-color: #fee2e2; color: #b91c1c; }
+.badge-corrupted_heap { background-color: #fee2e2; color: #b91c1c; }
+.badge-unknown { background-color: #f1f5f9; color: #475569; }
+
+/* 诊断结果文本段落 */
+.diagnosis-summary p {
+    margin: 0;
+    font-size: 0.9375rem;
+}
+
+.diagnosis-summary .root-cause {
+    line-height: 1.6;
+}
+
+.diagnosis-summary .confidence {
+    color: var(--text-muted);
+}
+
+.diagnosis-summary .completed-at {
+    color: var(--text-muted);
+    font-size: 0.875rem;
+}
+
+/* 暗黑模式诊断标签颜色 */
+@media (prefers-color-scheme: dark) {
+    .badge-kernel_panic { background-color: #7f1d1d; color: #fecaca; }
+    .badge-watchdog { background-color: #78350f; color: #fef3c7; }
+    .badge-sysrq { background-color: #7f1d1d; color: #fecaca; }
+    .badge-power_off { background-color: #0c4a6e; color: #bae6fd; }
+    .badge-reboot { background-color: #0c4a6e; color: #bae6fd; }
+    .badge-exception { background-color: #78350f; color: #fef3c7; }
+    .badge-spinlock { background-color: #7f1d1d; color: #fecaca; }
+    .badge-memory { background-color: #78350f; color: #fef3c7; }
+    .badge-deadlock { background-color: #7f1d1d; color: #fecaca; }
+    .badge-null_pointer { background-color: #7f1d1d; color: #fecaca; }
+    .badge-use_after_free { background-color: #7f1d1d; color: #fecaca; }
+    .badge-double_free { background-color: #7f1d1d; color: #fecaca; }
+    .badge-buffer_overflow { background-color: #7f1d1d; color: #fecaca; }
+    .badge-corrupted_stack { background-color: #7f1d1d; color: #fecaca; }
+    .badge-corrupted_heap { background-color: #7f1d1d; color: #fecaca; }
+    .badge-unknown { background-color: #334155; color: #cbd5e1; }
+}
+
+[data-theme="dark"] .badge-kernel_panic { background-color: #7f1d1d; color: #fecaca; }
+[data-theme="dark"] .badge-watchdog { background-color: #78350f; color: #fef3c7; }
+[data-theme="dark"] .badge-sysrq { background-color: #7f1d1d; color: #fecaca; }
+[data-theme="dark"] .badge-power_off { background-color: #0c4a6e; color: #bae6fd; }
+[data-theme="dark"] .badge-reboot { background-color: #0c4a6e; color: #bae6fd; }
+[data-theme="dark"] .badge-exception { background-color: #78350f; color: #fef3c7; }
+[data-theme="dark"] .badge-spinlock { background-color: #7f1d1d; color: #fecaca; }
+[data-theme="dark"] .badge-memory { background-color: #78350f; color: #fef3c7; }
+[data-theme="dark"] .badge-deadlock { background-color: #7f1d1d; color: #fecaca; }
+[data-theme="dark"] .badge-null_pointer { background-color: #7f1d1d; color: #fecaca; }
+[data-theme="dark"] .badge-use_after_free { background-color: #7f1d1d; color: #fecaca; }
+[data-theme="dark"] .badge-double_free { background-color: #7f1d1d; color: #fecaca; }
+[data-theme="dark"] .badge-buffer_overflow { background-color: #7f1d1d; color: #fecaca; }
+[data-theme="dark"] .badge-corrupted_stack { background-color: #7f1d1d; color: #fecaca; }
+[data-theme="dark"] .badge-corrupted_heap { background-color: #7f1d1d; color: #fecaca; }
+[data-theme="dark"] .badge-unknown { background-color: #334155; color: #cbd5e1; }
     }
 }

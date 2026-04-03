@@ -32,6 +32,7 @@ env/
 *.swp
 *.swo
 *~
+CLAUDE.md
 
 # Testing
 .pytest_cache/
@@ -49,7 +50,9 @@ chaosdroid.db
 artifacts/
 reports/
 logs/
+data/
 .env
+.env.local
 *.log
 
 # Temporary files

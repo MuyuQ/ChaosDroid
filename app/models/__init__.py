@@ -52,6 +52,7 @@ from .device import Device
 from .device_lease import DeviceLease
 from .device_pool import DevicePool
 from .event import IncidentEvent
+from .event_queue import EventQueue
 from .profiles import FaultProfile, RecoveryProfile, ValidationProfile
 from .scenario import ScenarioRun, ScenarioStep, ScenarioTemplate
 
@@ -100,4 +101,5 @@ __all__ = [
     "DevicePool",
     "DeviceLease",
     "IncidentEvent",
+    "EventQueue",
 ]
