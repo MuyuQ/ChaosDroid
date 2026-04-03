@@ -8,45 +8,18 @@
     <link rel="stylesheet" href="/static/css/style.css">
     <script src="https://unpkg.com/htmx.org@1.9.6"></script>
     <style>
-        /* 无障碍：跳转到主内容链接 */
-        .skip-link {
-            position: absolute;
-            top: -40px;
-            left: 0;
-            background: var(--color-primary, #2563eb);
-            color: white;
-            padding: 8px 16px;
-            z-index: 100;
-            transition: top 0.3s;
-        }
-        .skip-link:focus {
-            top: 0;
-        }
-        /* 屏幕阅读器专用样式 */
-        .visually-hidden {
-            position: absolute;
-            width: 1px;
-            height: 1px;
-            padding: 0;
-            margin: -1px;
-            overflow: hidden;
-            clip: rect(0, 0, 0, 0);
-            white-space: nowrap;
-            border: 0;
-        }
         /* 焦点样式增强 */
         a:focus-visible,
         button:focus-visible,
         input:focus-visible,
         select:focus-visible,
         [tabindex]:focus-visible {
-            outline: 2px solid var(--color-primary, #2563eb);
+            outline: 2px solid var(--primary-color, #2563eb);
             outline-offset: 2px;
         }
     </style>
 </head>
 <body>
-    <a href="#main-content" class="skip-link">跳转到主内容</a>
 
     {% if csrf_token is defined %}
     <!-- CSRF Token 隐藏存储 -->
@@ -80,8 +53,8 @@
 
     <nav class="navbar" role="navigation" aria-label="主导航">
         <div class="container">
-            <a href="/" class="navbar-brand" aria-label="AegisOTA 首页">
-                <strong>AegisOTA</strong>
+            <a href="/" class="navbar-brand" aria-label="ChaosDroid 首页">
+                <strong>ChaosDroid</strong>
             </a>
             <button
                 type="button"
@@ -95,10 +68,8 @@
             <ul class="navbar-nav" id="navbar-menu" role="menubar">
                 <li role="none"><a href="/" role="menuitem">仪表盘</a></li>
                 <li role="none"><a href="/devices" role="menuitem">设备管理</a></li>
-                <li role="none"><a href="/pools" role="menuitem">设备池</a></li>
                 <li role="none"><a href="/runs" role="menuitem">任务列表</a></li>
                 <li role="none"><a href="/diagnosis" role="menuitem">日志诊断</a></li>
-                <li role="none"><a href="/settings" role="menuitem">系统设置</a></li>
             </ul>
         </div>
     </nav>

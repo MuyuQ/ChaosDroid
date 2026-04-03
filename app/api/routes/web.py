@@ -112,8 +112,6 @@ async def index(request: Request):
     </style>
 </head>
 <body>
-    <a href="#main-content" class="skip-link">跳转到主内容</a>
-
     <nav class="navbar" role="navigation" aria-label="主导航">
         <div class="container">
             <a href="/" class="navbar-brand" aria-label="ChaosDroid 首页">
