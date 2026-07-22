@@ -1241,3 +1241,6 @@ MIT License
 - [详细部署文档](DEPLOYMENT.md)
 - [TraceLens 集成文档](docs/TRACLENS_INTEGRATION.md)
 - [项目优化方案](docs/superpowers/specs/2026-04-02-chaosdroid-optimization-plan.md)
+
+---
+*最后更新: 2026-07-22*
