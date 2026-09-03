@@ -3,7 +3,6 @@ Web 服务 CLI 命令模块。
 
 提供启动 Web 服务器的功能。
 """
-from typing import Optional
 
 import typer
 from rich.console import Console

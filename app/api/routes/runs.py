@@ -1,8 +1,6 @@
 """Runs API routes - 连接执行记录服务层."""
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Path
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional, List
 from enum import Enum
 from datetime import datetime
 
@@ -18,7 +16,6 @@ from app.services.run_service import (
     RunFilters,
 )
 from app.services.execution_service import get_execution_service
-from app.models import RunStatus, ExecutorMode, InjectStage
 
 router = APIRouter()
 

@@ -8,13 +8,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from app.config.settings import get_settings
 from app.executors.base import BaseDeviceExecutor
-from app.injectors.base import BaseInjector, InjectContext
 from app.models.base import StepStatus, StepType
 from app.models.database import get_session_context
 from app.models.scenario import ScenarioStep
-from app.observers.collector import ArtifactCollector
 
 logger = logging.getLogger(__name__)
 

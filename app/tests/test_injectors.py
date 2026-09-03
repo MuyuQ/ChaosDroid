@@ -3,10 +3,7 @@
 
 测试注入器基类、注册机制和StoragePressureInjector。
 """
-import asyncio
-import json
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -22,8 +19,6 @@ from app.injectors.base import (
     list_injectors,
 )
 from app.injectors.storage_pressure import StoragePressureInjector
-from app.executors.mock_executor import MockDeviceExecutor, MockDeviceState, MockScenario
-from app.executors.base import StorageInfo, BatteryInfo, ShellResult
 
 
 # ==================== Fixtures ====================

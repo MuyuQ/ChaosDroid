@@ -1,6 +1,5 @@
 """ChaosDroid-TraceLens 集成测试。"""
 
-import asyncio
 import pytest
 from sqlalchemy import select
 

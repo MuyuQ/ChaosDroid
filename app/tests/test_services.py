@@ -10,11 +10,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.executors.mock_executor import MockDeviceExecutor, MockDeviceState, MockScenario
-from app.executors.base import BatteryInfo, StorageInfo, ShellResult
-from app.validators.base import JudgmentResult, ValidationResult
-from app.services.report_generator import ReportData, ReportGenerator
-from app.services.recovery_service import (
     RecoveryService,
     RecoveryStep,
     RecoveryStepResult,

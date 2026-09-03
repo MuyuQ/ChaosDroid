@@ -6,10 +6,7 @@ SQLAlchemy 2.0 数据库模型基础模块。
 
 from datetime import datetime
 from enum import Enum
-from typing import AsyncGenerator
 
-from sqlalchemy import JSON, DateTime, Integer, String, Boolean, ForeignKey, func
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 class Base(DeclarativeBase):

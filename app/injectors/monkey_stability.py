@@ -2,7 +2,6 @@
 import asyncio
 import random
 import re
-from typing import Dict, Any
 
 from app.injectors.base import (
     BaseInjector,

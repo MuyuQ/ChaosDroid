@@ -1,13 +1,9 @@
 """Devices API routes - 连接设备执行器层."""
 
-from fastapi import APIRouter, HTTPException, Query, Path
-from pydantic import BaseModel, Field
 from typing import Optional, List
 from enum import Enum
-import asyncio
 
 from app.executors.mock_executor import MockDeviceExecutor, MockScenario
-from app.executors.base import ExecutorMode, BatteryInfo, StorageInfo
 
 router = APIRouter()
 

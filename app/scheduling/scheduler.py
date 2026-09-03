@@ -3,17 +3,12 @@
 提供任务调度功能，包括设备分配和任务抢占。
 """
 import logging
-from datetime import datetime, timezone
-from typing import Optional
 
-from sqlalchemy import select, and_, case
 from sqlalchemy.orm import Session
 
 from app.models.device import Device
-from app.models.device_lease import DeviceLease
 from app.models.scenario import ScenarioRun
 from app.models.base import RunStatus
-from app.scheduling.enums import Priority, LeaseStatus
 from app.scheduling.pool_manager import PoolManager
 from app.scheduling.lease_manager import LeaseManager
 

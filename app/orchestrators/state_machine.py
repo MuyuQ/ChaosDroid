@@ -3,7 +3,6 @@ import json
 import logging
 from abc import ABC, abstractmethod
 from datetime import datetime
-from enum import Enum
 from typing import Callable, Optional, Dict, Any
 
 from sqlalchemy import select

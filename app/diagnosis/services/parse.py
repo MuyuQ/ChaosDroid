@@ -2,13 +2,11 @@
 
 import logging
 from pathlib import Path
-from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.diagnosis.enums import SourceType
-from app.diagnosis.exceptions import ParseError, NotFoundError
 from app.diagnosis.models import DiagnosticRun, RawArtifact, NormalizedEventDB
 from app.diagnosis.normalizer import EventNormalizer
 from app.diagnosis.parsers import (

@@ -1,7 +1,6 @@
 """CPU/I/O压力注入器."""
 import asyncio
 import random
-from typing import Dict, Any, List
 
 from app.injectors.base import (
     BaseInjector,

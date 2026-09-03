@@ -10,11 +10,9 @@ from datetime import datetime
 import typer
 from rich.console import Console
 from rich.table import Table
-from rich.live import Live
 
 from app.models import get_session_context
 from app.scheduling import Scheduler, DeviceSyncService
-from app.models.base import RunStatus
 
 # 创建 Typer 应用
 worker_app = typer.Typer(

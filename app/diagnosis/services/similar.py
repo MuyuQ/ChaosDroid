@@ -1,6 +1,5 @@
 """相似案例召回服务 - 异步版本。"""
 
-from typing import Optional
 
 from rapidfuzz import fuzz
 from sqlalchemy.ext.asyncio import AsyncSession

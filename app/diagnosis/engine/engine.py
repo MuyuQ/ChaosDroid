@@ -1,6 +1,5 @@
 """规则引擎。"""
 
-from datetime import datetime
 from typing import Optional
 
 from app.diagnosis.config import settings

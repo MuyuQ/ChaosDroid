@@ -1,8 +1,6 @@
 """Scenarios API routes - 连接场景服务层."""
 
-from fastapi import APIRouter, HTTPException, Query, Path
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional, List
 from enum import Enum
 
 from app.services.scenario_service import (
@@ -15,7 +13,6 @@ from app.services.scenario_service import (
     get_scenario_with_runs,
     ScenarioFilters,
 )
-from app.models import TargetType, InjectStage, ExecutorMode
 
 router = APIRouter()
 

@@ -4,7 +4,6 @@
 检查所有必要的组件是否已正确部署。
 """
 import sys
-import os
 from pathlib import Path
 
 def check_mark(passed):

@@ -1,8 +1,6 @@
 """设备执行器基类."""
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, Any, Optional, List
 
 
 class ExecutorMode(str, Enum):

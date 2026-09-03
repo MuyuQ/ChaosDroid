@@ -1,9 +1,7 @@
 """FastAPI Web 应用。"""
 
-import secrets
 from pathlib import Path
 
-from fastapi import FastAPI, Request, Depends
 from fastapi.responses import HTMLResponse, JSONResponse
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 

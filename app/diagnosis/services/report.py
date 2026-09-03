@@ -15,7 +15,6 @@ from app.diagnosis.models import (
     DiagnosticResultDB,
     RuleHit,
 )
-from app.diagnosis.schemas import DiagnosticResult, ReportPayload, NormalizedEvent, SimilarCase
 from app.diagnosis.services.similar import SimilarCaseService
 
 
