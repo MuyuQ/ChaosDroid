@@ -2,10 +2,8 @@
 
 from fastapi import APIRouter, HTTPException, Query, Path
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
 from typing import Optional
 import json
-import os
 
 from app.services.report_service import (
     create_report,

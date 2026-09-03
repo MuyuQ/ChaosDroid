@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, Index, JSON, Float
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from .base import Base, InjectStage, RunStatus, StepStatus, StepType, TargetType, ExecutorMode, TimestampMixin
 
 if TYPE_CHECKING:
     from .artifact import Artifact, Report

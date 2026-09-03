@@ -11,7 +11,6 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.executors.real_executor import RealDeviceExecutor
-from app.executors.mock_executor import MockDeviceExecutor
 from app.models.scenario import ScenarioRun
 
 logger = logging.getLogger(__name__)

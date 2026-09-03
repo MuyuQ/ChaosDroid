@@ -2,10 +2,8 @@
 
 测试完整的场景执行流程。
 """
-import asyncio
 import json
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy import select

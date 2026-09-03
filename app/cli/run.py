@@ -5,7 +5,6 @@
 """
 from typing import Optional
 from enum import Enum
-from datetime import datetime
 
 import typer
 from rich.console import Console

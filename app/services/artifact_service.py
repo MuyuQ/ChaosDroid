@@ -9,10 +9,8 @@ import os
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Artifact, ArtifactType, ScenarioRun, ScenarioStep, get_session_context
 
 
 async def save_artifact(

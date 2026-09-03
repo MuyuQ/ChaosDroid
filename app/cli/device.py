@@ -4,13 +4,11 @@
 提供设备列表、状态检查等功能。
 """
 from typing import Optional
-from datetime import datetime
 
 import typer
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
-from rich import print as rprint
 
 # 创建 Typer 应用
 device_app = typer.Typer(

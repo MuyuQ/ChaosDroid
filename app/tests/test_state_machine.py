@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.models import RunStatus, ScenarioRun, ScenarioTemplate, InjectStage
 from app.orchestrators.state_machine import (
     BaseStateHandler,
     InjectingHandler,
@@ -19,9 +18,6 @@ from app.orchestrators.state_machine import (
     ValidatingHandler,
 )
 from app.injectors.base import InjectContext, InjectResult
-from app.validators.base import ValidationContext, ValidationResult, CheckResult
-from app.executors.mock_executor import MockDeviceExecutor, MockDeviceState, MockScenario
-from app.executors.base import StorageInfo, BatteryInfo
 
 
 # ==================== Fixtures ====================
