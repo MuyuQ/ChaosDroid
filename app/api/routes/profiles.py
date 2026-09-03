@@ -1,8 +1,6 @@
 """Profiles API routes - 连接配置文件服务层."""
 
-from fastapi import APIRouter, HTTPException, Query, Path
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional, Any
 from enum import Enum
 import json
 
@@ -26,7 +24,6 @@ from app.services.profile_service import (
     get_profile,
     ProfileFilters,
 )
-from app.models import RiskLevel
 
 router = APIRouter()
 

@@ -4,14 +4,12 @@
 包含 FaultProfile、ValidationProfile 和 RecoveryProfile 模型定义。
 """
 
-from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, Integer, String, Text, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.sqlite import JSON
 
-from .base import Base, FaultType, RiskLevel, TimestampMixin
 
 if TYPE_CHECKING:
     from .scenario import ScenarioTemplate

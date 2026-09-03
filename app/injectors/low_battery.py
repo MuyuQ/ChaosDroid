@@ -1,7 +1,6 @@
 """低电量注入器."""
 import asyncio
 import random
-from typing import Dict, Any
 
 from app.injectors.base import (
     BaseInjector,

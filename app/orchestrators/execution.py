@@ -2,17 +2,11 @@
 
 提供具体的执行阶段实现，负责各阶段的详细操作。
 """
-import json
 import logging
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from app.config.settings import get_settings
-from app.executors.base import BaseDeviceExecutor, StorageInfo, BatteryInfo
-from app.injectors.base import BaseInjector, InjectContext, InjectResult
-from app.models.base import StepStatus, StepType
-from app.observers.collector import ArtifactCollector, ObservationCollector
 from app.services.device_lock_manager import (
     DeviceLockManager,
     DeviceLockTimeoutError,

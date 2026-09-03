@@ -17,8 +17,6 @@ from app.validators.base import (
     ValidationResult,
     judge_result,
 )
-from app.executors.mock_executor import MockDeviceExecutor, MockDeviceState, MockScenario
-from app.executors.base import StorageInfo, BatteryInfo, ShellResult
 
 
 # ==================== Fixtures ====================

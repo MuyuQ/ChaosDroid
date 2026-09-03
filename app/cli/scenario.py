@@ -10,7 +10,6 @@ import typer
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
-from rich import print as rprint
 
 # 创建 Typer 应用
 scenario_app = typer.Typer(

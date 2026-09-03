@@ -1,11 +1,8 @@
 """Device pool API routes - 设备池管理接口."""
 
-from fastapi import APIRouter, HTTPException, Query, Path, Depends
-from pydantic import BaseModel, Field
 from typing import Optional, List
 
 from app.models import get_session_context
-from app.models.device_pool import DevicePool
 from app.scheduling import PoolManager
 from app.scheduling.enums import DevicePoolPurpose
 
