@@ -7,9 +7,11 @@ import sys
 from pathlib import Path
 
 def check_mark(passed):
+    """check_mark 功能说明。"""
     return "✅" if passed else "❌"
 
 def main():
+    """main 功能说明。"""
     print("=" * 60)
     print("ChaosDroid 部署验证")
     print("=" * 60)
