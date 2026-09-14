@@ -17,6 +17,7 @@ router = APIRouter()
 _templates = None
 
 def _get_templates():
+    """_get_templates 功能说明。"""
     global _templates
     if _templates is None:
         from starlette.templating import Jinja2Templates
