@@ -16,16 +16,19 @@ router = APIRouter(prefix="/api/diagnosis", tags=["diagnosis"])
 
 
 class IngestRequest(BaseModel):
+    """IngestRequest 功能说明。"""
     log_path: str
     device_serial: Optional[str] = None
     test_type: Optional[str] = None
 
 
 class DiagnoseRequest(BaseModel):
+    """DiagnoseRequest 功能说明。"""
     run_id: str
 
 
 class DiagnoseResponse(BaseModel):
+    """DiagnoseResponse 功能说明。"""
     run_id: str
     stage: str
     category: str
